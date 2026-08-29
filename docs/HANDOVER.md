@@ -1,0 +1,136 @@
+# WorkSwitch 交接文档
+
+> 更新时间：2026-08-29 · 对应版本：v0.0.1（已推 GitHub tag，CI 详见「已知问题」）
+> 本文档面向接手开发者：先读「项目概览」与「开发环境」，再按模块索引查细节。
+> 工作区规范（不可违背的原则、打包 Runbook、验证命令）以根目录 `AGENTS.md` 为准，本文不重复。
+
+## 1. 项目概览
+
+WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通过 Chrome DevTools Protocol（CDP）向正在运行的 Electron 客户端注入一个面板，本地 daemon 提供账号备份/切换、会话管理、防休眠等能力。**零侵入、只走 CDP 和本地文件，不改官方 app.asar，daemon 只绑 127.0.0.1。**
+
+当前支持 5 个客户端（每端一个独立 daemon 实例，由 `WBSWITCH_PROFILE` 环境变量绑定）：
+
+| profile | 客户端 | kind | UI 端口 | CDP 端口 | 已开放能力 |
+|---|---|---|---|---|---|
+| `workbuddy-cn` | WorkBuddy 国内版 | workbuddy | 47832 | 9222 | 全部（账号/会话/模型/暂存/主题/签到） |
+| `workbuddy-ai` | WorkBuddy AI 国际版 | workbuddy | 47833 | 9223 | 全部（签到除外） |
+| `codebuddy-cn` | CodeBuddy 国内版 | codebuddy | 47834 | 9224 | 会话只读 + 签到 |
+| `codebuddy-intl` | CodeBuddy 国际版 | codebuddy | 47835 | 9225 | 会话只读 + 签到 |
+| `trae-work-cn` | Trae Work CN（字节 TraeWork） | trae | 47836 | 9240 | **会话只读**（本次新增） |
+
+内部约定（勿改，多处依赖）：API 协议头 `X-WorkDaddy-Token`；数据目录 `%APPDATA%\WorkDaddy`（非 CN profile 在其下 `profiles\<id>` 子目录）；注入占位符 `__WBS_*` 系列；`WBS_` 前缀的内部标识。
+
+## 2. 当前进度（截至 2026-08-29）
+
+**已完成并合入 main（commit a9d8a9c，tag v0.0.1）：**
+
+1. **Trae Work CN 全链路接入**（首个 kind=trae 客户端）：
+   - launcher 拉起链路：`win-launcher.js` 支持 `TRAE SOLO CN.exe`（默认装 `%LOCALAPPDATA%\Programs\TRAE SOLO CN`，自定义盘根目录走注册表 `TraeWork|TRAE SOLO` 匹配 + 盘根候选 + 扫描目录兜底；进程白名单 `trae solo cn.exe` 已加入 `windows-process-boundary.js`）。
+   - CDP 注入管线：workbench 页面 target 为 `vscode-file://vscode-app/.../solo/solo-lite.html`，归属判定强信号 = URL 中的安装目录 `TRAE SOLO CN`。
+   - **只读会话列表**（详见 §3.4）：面板「会话」页显示侧栏任务列表的真实数据（标题/空间/时间），已实机验证。
+2. **WorkSwitch 品牌化**：面板品牌、安装名（WorkSwitch / WorkSwitch AI / WorkSwitch Trae）、安装包名（`WorkSwitch[-AI|-Trae]-Setup-x.y.z.exe`）、更新资产前缀、About 页文案全部切换；更新仓库指向 `xiaowulai-s/Work_Switch`；`DAEMON_VERSION = 0.0.1`。
+3. **自动更新渠道声明制**：`UPDATE_CHANNEL`（daemon.js）按 profile 登记资产前缀，未登记的（codebuddy-*/trae-*）完全不触达 Releases API——顺带修复了旧版 codebuddy 会误选 WorkDaddy CN 安装包的隐患。
+4. 251 项测试全过；`node --check` 全绿。
+
+**当前阻塞项：**
+
+- **CI run [33250380974](https://github.com/xiaowulai-s/Work_Switch/actions/runs/33250380974)（tag v0.0.1）失败**：job "Build Setup.exe + verify"，2 errors + 1 warning，报错为 `Process completed with exit code 1`。因本机访问 GitHub API 被限流（共享代理出口 IP），失败注解未能抓到。**接手后第一件事**：打开该 run 页面看失败步骤日志，修复后删除远端 tag 重新推（`git push origin :refs/tags/v0.0.1` + 重打）或直接升 v0.0.2。可疑点：① 新增的 CRLF 校验步骤对 cmd 文件换行的要求；② build-win-zip.sh 在 CI Linux 环境跑 python3 的兼容性；③ 打包脚本对 WorkSwitch 品牌串的断言（本地测试已覆盖，但 CI 环境差异待排除）。
+
+**明确未做（见 §5 开发计划）：** Trae 的模型/账号/主题能力、macOS 包、macOS Trae 包名实机确认。
+
+## 3. 模块实现细节（含关键设计决策与坑）
+
+### 3.1 profile 注册与端口
+
+- `scripts/profiles.js`：唯一注册点。每个 profile 声明 appPath/dataRoot/authFile/sessionDb/modelsFile/apiHost/capabilities/targetHints/appName。未知 profile 直接抛错（fail-closed）。
+- UI 端口：`scripts/ui-port.js` `PROFILE_UI_PORTS`（主端口 + 17xxx/27xxx/37xxx 回退段）；CDP 端口：`daemon.js` `PROFILE_CDP_PORT` 与 `win-launcher.js` `PROFILE_CDP_PORTS`。**注意**：workbuddy-cn 的 CDP 回退段占 9226-9232、workbuddy-ai 占 9233-9239，**新 trae 系客户端从 9240 起分配**（trae-work-cn=9240）。`ui-port.js` 对未知 profile 会静默回落 47832——加新 profile 时必须同步端口表并更新 `test/ui-port.test.js` 的互斥断言。
+- `appPath` Windows 安装路径不一定真实存在（自定义安装），win-launcher 有注册表/盘根兜底（见 §3.6）。
+
+### 3.2 CDP target 归属判定（`scripts/cdp-targets.js`，纯函数）
+
+- `classifyTarget`：强信号 = app 包路径 / 登录域名。Trae Work CN 的强信号正则 `APP_TRAE_WORK_CN = /\/TRAE SOLO CN(?:\.app)?(?:\/|$)/i`（Windows 的 vscode-file URL 归一化后含安装目录；macOS 包名 `/Applications/TraeWork CN.app` 为预留值，**实机未验证**）。
+- `isTargetForProfile`：强信号命中即严格比对 profile id；无强信号时 kind 宽松兜底（codebuddy/trae 要求 URL 以 vscode-file 开头或 haystack 含产品名；trae 额外要求 /trae/i 或 vscode-file，防误连）。改动这里必须同步 `test/cdp-targets.test.js`。
+
+### 3.3 daemon（`scripts/daemon.js`，注意它是 34 万字符的大文件）
+
+- **会话层分 kind**：`sqliteRun`（写）只允许 kind=workbuddy；`sqliteQuery`（读）三路：workbuddy 直读 SQLite、codebuddy 走 `codeBuddySessionRows()`（明文 vscdb）+ SQL 形状过滤、**trae 走 `traeSessionRows()`**（CDP 读渲染层收集器）+ `filterTraeSessionRows()`（支持主列表/DISTINCT cwd 两种 SQL 形状 + uid/时间参数过滤）。
+- **注入时占位符替换**（`injectWidget` 内）：`__WBS_PROFILE__`、`__WBS_PROFILE_KIND__`（本次新增，inject.js 的 kind 维度）、`__WBS_CAPS__`、`__WBS_API_TOKEN__` 等。inject.js 是**每次注入都重新读文件**的——改了 inject.js 不用重启 daemon，调 `POST /api/inject`（带 token）即可重注入；改了 daemon.js 才需要重启（watchdog 检测到版本不一致会自动重启 daemon，所以开发时直接 `taskkill` daemon 进程即可，watchdog 几秒内拉起新代码）。
+- **CORS 白名单**：`isAllowedApiOrigin` 必须包含 `vscode-file://` 前缀（CodeBuddy/Trae workbench 的 Origin），否则面板所有 fetch 静默失败（`net::ERR_FAILED`，Network 域无 blockedReason，日志无请求痕迹）。这是 Trae 接入时踩的最大坑。
+- **更新**：`UPDATE_CHANNEL = 'WorkSwitch-AI-' / 'WorkSwitch-' / null`；checkUpdate 对 null 短路；下载/安装路由双重拒绝。资产正则按渠道字面量分组（`WorkSwitch-(?!AI-)` 负向断言防误配 AI 包）——新增渠道时在这里登记专属正则，`test/update-channel.test.js` 是护栏。
+- cdpSend **返回值已剥一层**：取值用 `r.result.value`（不是 `r.result.result.value`）——traeSessionRows 曾因此静默返回空列表。
+
+### 3.4 inject.js（注入面板，51 万字符）
+
+- 顶部（`__wbsWidget` 守卫**之前**）安装 `window.__wbsTraeSessions`（仅 `'__WBS_PROFILE_KIND__' === 'trae'` 时）：沿 DOM 元素的 `__reactFiber$` 键向上走 ≤14 层 return，收集含 `props.group`（有 id/children/name）的 fiber，把 `group.children` 中 `type==='session'` 的项映射为会话行（sessionId→id、name→title、mainFolder→cwd、updateAt→时间三兄弟、mode/env/project 附加）。**为什么走渲染层**：Trae 本地会话库 `ModularData/ai-agent/database.db` 是加密 SQLite（node:sqlite 打开报 file is not a database），云端列表接口 `trae-api-cn.mchost.guru/api/remote/v1/chat_sessions` 只在页面加载时拉一次、空闲无流量（且带 Cloud-IDE-JWT，重放需抓 token，收益低）；侧栏 fiber 状态是唯一稳定源。收集器无状态、重注入整段覆盖，无缓存失效问题。
+- CAPS 门控：accounts/models/theme/stashPrompt/sessions 各自控制 tab 增删。**注意两处易错**：① `!CAPS.accounts` 分支里做了默认激活 tab 的回退（会话可用→会话，否则→电脑→关于）；② `logoutBtn` 只有账号 pane 存在时才非空，build() 尾部挂监听必须 `if (logoutBtn)`——曾因无条件挂监听导致 build() 中途抛错，**连锁**导致其后才赋值的 `ND_DEFS` 为 undefined，用户点「增强」页时报 `ND_DEFS.length` 崩溃（根因已修，表现为增强页崩溃时先查 logoutBtn）。
+- daemon 侧注入 `__WBS_PROFILE_KIND__`（workbuddy/codebuddy/trae），新 kind 专属 UI 逻辑用它门控，别再堆 PROFILE_ID 前缀判断。
+- 面板 → daemon 的 fetch 从 vscode-file origin 发出，依赖 §3.3 的 CORS 白名单。
+
+### 3.5 安装与打包链（Windows）
+
+- 链路：`build-win-release.ps1`（三 profile 循环）→ `build-win-zip.sh`（暂存 ZIP + 打包期替换）→ `build-win-installer.ps1`（Inno Setup 编 Setup.exe，`scripts/win/workdaddy.iss` 全参数驱动）。
+- **打包期文本替换的三个坑**（改打包逻辑前必读 `build-win-zip.sh` 3.2a/3.3a/3.3b 注释）：
+  1. ps1 只替换 param 默认值处的 `__WBS_DEFAULT_PROFILE__` 占位符，**绝不能全局替换**（会破坏 AI 包的白名单判断）；
+  2. win-launcher.js 默认 profile 只在源码仍是 `|| 'workbuddy-cn'` 字面量时替换——**源码里这个默认值不能改成别的**；
+  3. AI/Trae 包品牌化块按「基准串 → 变体串」做文本替换（含 `verify-win.cmd` 的安装目录/桌面 lnk 自检路径、`install-win.cmd` 的两条 base64 成功提示）——**改 cmd/ps1 基准文案时必须同步改 zip 脚本里对应的新旧串对**，否则自检路径错乱或替换 MISS。`test/update-layout.test.js` 里的 CRLF 品牌化测试会实际跑这段 python。
+- 品牌名映射集中在各脚本顶部的三分支（productName/packageName/startDescription/Run 项清理名单——名单同时保留 WorkDaddy 旧名用于升级迁移清理）。
+- daemon 版本一致性：zip 打包期强制把 staged daemon.js 的 `DAEMON_VERSION`/`DAEMON_BUILD_ID` 重写为发布版本——所以 **tag 发布时 CI 用的是源码里的 DAEMON_VERSION，改版本号要改源码**。
+
+### 3.6 Windows 启动器（`win-launcher.js`）
+
+- 每类 profile 有 `PROFILE_PROCESS_NAMES`/`PROFILE_BINARY_NAMES`（精确镜像名小写），进程查询/退出判定只认自己的镜像，绝不全名杀伤。
+- exe 发现顺序：PROFILE.appPath → App Paths 注册表（按 profile 分 key）→ 卸载注册表（Trae 用 `TraeWork|TRAE SOLO`，**不能匹配裸 "Trae"**，会抓到 Trae IDE）→ 常见路径 → 盘根候选 → 安装目录 PowerShell 扫描。误报由 `selectPreferredDiscoveredBinary` 按镜像名兜底过滤。
+- 已知偶发：验证后进程已自行退出时 taskkill 返回 1 → fail-closed 报错（设计如此）。重跑一次 launcher 即可。
+
+### 3.7 macOS 侧（`install.sh` / `relaunch-with-cdp.sh` / `apply-update.sh`）
+
+- 有 trae-work-cn 的 case 分支（端口/数据目录/CDP 9240），但 **macOS 的 Trae 包名 `TraeWork CN.app` 是预留值，实机未验证**——接手后在 mac 上确认后修正 relaunch-with-cdp.sh 的 APP_BIN 与 profiles.js 的 appPath。
+- macOS 打包（build-mac-dmg.sh）与 WorkSwitch 改名未同步（脚本内仍是 WorkDaddy 命名），CI 也不出 mac 包；做 mac 发布前需统一。
+
+## 4. 开发环境与常用命令
+
+```bash
+# 启动（方式一，推荐）：一条命令完成 watchdog+daemon+CDP 启动客户端+注入
+WBSWITCH_PROFILE=trae-work-cn scripts/launcher.cmd        # Git Bash 下也可
+# 方式二（调试）：手动两步
+WBSWITCH_PROFILE=trae-work-cn node scripts/daemon.js &
+"D:\TRAE SOLO CN\TRAE SOLO CN.exe" --remote-debugging-port=9240 &
+
+# 验证
+node --check scripts/daemon.js && node --check scripts/inject.js
+node --test test/*.test.js
+curl -s http://127.0.0.1:47836/api/status          # profile/cdp 状态（会话 API 需 token）
+TOKEN=$(cat "$APPDATA/WorkDaddy/profiles/trae-work-cn/.api-token")
+curl -s "http://127.0.0.1:47836/api/sessions?range=all" -H "X-WorkDaddy-Token: $TOKEN"
+
+# 只改了 inject.js：免重启重注入
+curl -X POST http://127.0.0.1:47836/api/inject -H "X-WorkDaddy-Token: $TOKEN"
+# 改了 daemon.js：kill 掉 daemon 进程即可，watchdog 秒级拉起新代码
+
+# 本机打包（需 Inno Setup 6 + Git Bash + python3；CI 也走同一套脚本）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-win-release.ps1 -Version 0.0.1
+
+# GitHub 推送（本机直连被重置，走本地代理 7897）
+git -c http.proxy=http://127.0.0.1:7897 push origin main
+```
+
+开发机现状（2026-08-29）：daemon 0.0.1 常驻（47836，watchdog 托管）、Trae Work CN 带 CDP 9240 运行中、面板已注入且会话页可用。
+
+## 5. 下一步开发计划（建议优先级）
+
+1. **P0 — 修 CI 发布链**：排查 run 33250380974 的 2 个 error（见 §2），修复后重发 v0.0.1（删 tag 重推）或 v0.0.2；确认 Release 挂上三个 `WorkSwitch-*-Setup-0.0.1.exe`，并按 AGENTS.md 校验包内无 `安装失败自主解决提示词.txt`、无临时 ZIP。
+2. **P1 — Trae 模型能力**：模型目录是服务端下发（state.vscdb 的 `AI.agent.model.model_list_map` 只是缓存，切换键 `AI.agent.model.session_selected_model` 也在 vscdb）。可行路线：渲染层 fiber/服务读取模型列表 + CDP 触发切换；**不支持直写 vscdb**（应用运行时持锁）。先在 fiber 里确认模型选择器的数据结构再动手，落点仿照 §3.4 收集器模式。
+3. **P1 — Trae 会话增强**：当前只读列表来自「已挂载的侧栏分组」，长列表分页（组件有 `hasMoreSessions`/`onLoadMore`）未处理；删除/重命名等写操作需走云端 API（带 Cloud-IDE-JWT，token 可从 CDP Network 域轮询捕获，注意**绝不能落盘/进日志**）。
+4. **P2 — Trae 账号能力**：登录态为加密存储 + Cloud-IDE-JWT（有失效与刷新问题），切换账号需逆向 trae.cn 账号接口，工作量大、单独排期。
+5. **P2 — Trae 主题能力**：Trae 是 VSCode fork，主题体系与 WorkBuddy 完全不同；若做，形态是「workbench 主题 + CSS 注入」，需新设计而非开关现有 theme 引擎。
+6. **P3 — macOS**：实机确认 Trae mac 包名；mac 打包脚本 WorkSwitch 化；CI 增加 mac job（现有 workflow 仅 Windows）。
+7. **P3 — 内置资产**：`WorkDaddy.app`（builtin 壁纸来源）被 gitignore，CI 出的包无官方壁纸；如需要，把 `scripts/builtin` 资产入库或改为构建期下载。
+8. **P3 — CodeBuddy 回归**：本次改了 CORS 白名单和更新渠道门控，codebuddy 双端的注入/会话/签到建议在实机过一遍（本机未装 CodeBuddy，静态+测试覆盖）。
+
+## 6. 关键风险与约定（接手必读）
+
+- **隐私红线**（AGENTS.md 原则 4/8）：不记录/上传 token、cookie、账号备份内容；云 API token（如 Cloud-IDE-JWT）只允许内存态使用；遥测开关与红acted 逻辑勿动。
+- **进程安全**：只精确匹配本 profile 的镜像名 + 校验路径/属主/命令行；提权进程 fail-closed 给人工指引，绝不做宽名杀伤。
+- **数据安全**：`%APPDATA%\WorkDaddy` 数据目录与账号备份格式不变更；profile 数据隔离靠 `profileDataDir`。
+- 测试是护栏：改端口表、CDP 判定、更新渠道、品牌串前先跑 `node --test test/*.test.js`，失败断言大多直接告诉你漏改了哪处联动。
+- 本仓库不是 WorkDaddy 上游的 git fork（历史从零开始），与上游 `babygoton/WorkDaddy` 的关系只在 README 致谢层面；同步上游改动请手动 cherry-pick。
