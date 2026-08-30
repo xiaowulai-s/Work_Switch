@@ -41,6 +41,15 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
   - 发布路径采用「删远端 tag 重打 v0.0.1」（两次），tag 必须指向包含 workflow 修复的提交，CI 才会用到新逻辑。
 
 **2026-08-30 新增（已随 v0.1.0 发布）：**
+**2026-08-30 新增（分支 feat/all-in-one，方案 C 进行中，未合 main 未发版）：**
+
+6. **All-in-One（单安装包承载全部客户端）**：
+   - `scripts/supervisor.js`（新增）：常驻管理器，轮询检测各 profile 客户端运行状态，daemon/CDP 不可用时调用 win-launcher 补齐（launcher 幂等）；客户端未运行不做任何事。CodeBuddy 双版共用镜像名，仅在 CDP 端口可判别版本时管理。单实例锁（`%APPDATA%\WorkDaddy\supervisor.pid`）+ `node supervisor.js stop`。
+   - **多 profile 进程身份修复（关键地基）**：同目录多 profile 的 (node, 脚本) 进程身份完全相同，watchdog 会把别的 profile 的 watchdog 当成自己的（pid 文件互写、daemon 起不来，实机复现）。修复：watchdog/daemon 启动命令行携带 `--profile=<id>`（daemon.js/watchdog.js 支持 argv 覆盖 env），windows-process-boundary 的过滤器/断言新增 `expectedProfileId` 严格尾参匹配。升级后旧 daemon 由 launcher 按版本强制重启自然带上新参数。
+   - 打包链 all 模式：`WORKDADDY_BUILD_PROFILE=all` → `WorkSwitch-All-Setup-x.y.z.exe`（独立目录/独立 AppId，与旧分身共存）；install-win.ps1 all 分支做迁移（精确停旧分身生命周期）+ 注册 HKCU Run 自启 + 启动管理器；uninstall/prepare/verify 同步支持。
+   - 实机验证：杀全部 Trae 生命周期后 supervisor 一个轮询周期重建（客户端零扰动）；WorkBuddy 检测+拉起验证通过；all 模式暂存包载荷抽查通过。**未完成**：Setup.exe 编译的 CI 验证与真机安装冒烟、v0.2.0 发版。
+   - 交接提示：本机当前 supervisor 正在运行（node supervisor.js，root 数据目录有 supervisor.pid）；Trae 由其托管。
+
 
 5. **Trae 在线模型列表/切换 + 会话重命名/删除**（daemon 0.1.0）：模型 tab 对 trae 实装（Auto Mode 置顶 + 内置模型分组 + 倍率/受限标签），收集器 `__wbsTraeModels` 临时展开官方下拉收割后恢复；`__wbsTraeSessionOps` 走侧栏「更多」菜单完成重命名/删除（不触达云 API，无 token 处理）。API：`/api/trae/models`（GET）、`/api/trae/models/switch`、`/api/trae/sessions/rename`、`/api/trae/sessions/delete`（均 POST）。实机全链路验证通过。细节与坑见 §3.7。
 
