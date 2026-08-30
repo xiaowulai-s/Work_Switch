@@ -1,6 +1,6 @@
 # WorkSwitch 交接文档
 
-> 更新时间：2026-08-30 · 当前版本：**v0.3.1**（已发布：全端单包 `WorkSwitch-All-Setup-0.3.1.exe`；trae 纳入自动更新渠道；apply-update 感知管理器）
+> 更新时间：2026-08-30 · 当前版本：**v0.3.1**（已发布：全端单包 `WorkSwitch-All-Setup-0.3.1.exe`；trae 纳入自动更新渠道；apply-update 感知管理器）· README.md 已同步全端形态
 > 本文档面向接手开发者：先读「项目概览」与「开发环境」，再按模块索引查细节。
 > 工作区规范（不可违背的原则、打包 Runbook、验证命令）以根目录 `AGENTS.md` 为准，本文不重复。
 
@@ -163,7 +163,13 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 8. **P3 — macOS**：实机确认 Trae mac 包名；mac 打包脚本 WorkSwitch 化；评估 mac 侧 supervisor 等价物（launchd）；CI 增加 mac job。
 9. **P3 — 内置资产**：`WorkDaddy.app`（builtin 壁纸来源）被 gitignore，CI 出的包无官方壁纸；把 `scripts/builtin` 入库或改构建期下载。
 10. **P3 — CodeBuddy 回归**：CORS 白名单、更新渠道、supervisor 的 codebuddy 保守策略都需实机过一遍（本机未装 CodeBuddy，静态+测试覆盖）。
-11. **P3 — 杂项**：CI 的 actions/checkout Node 20 弃用警告升级；v0.3.0 Release notes 人工补旧 AI 迁移说明。
+11. ~~**P3 — 杂项**~~ **已完成（2026-08-30）**：actions/checkout 已升 v5；v0.3.0/v0.3.1 Release notes 已人工补写（含旧 AI 分身手动迁移说明）；README.md 已全面重写为全端单包形态（能力矩阵/管理器架构/安装迁移说明）。
+12. **剩余项推进所需条件（接手者对照）**：
+    - **P2 Trae 账号能力**：需逆向 trae.cn 账号接口（登录态加密 + Cloud-IDE-JWT 刷新）——建议先抓包分析 `trae-api-cn.mchost.guru` 的账号族接口，排期单独做；隐私红线不变（token 只内存态）。
+    - **P2 Trae 主题能力**：先做产品决策——Trae 是 VSCode fork、用户已有原生主题体系，注入 CSS 强改会与原生设置打架；若做，建议最小化形态为「面板与注入元素跟随 Trae 当前主题色」而非整套主题引擎。
+    - **P3 macOS**：需要一台 mac 实机（确认 Trae mac 包名 + 跑通 install.sh/relaunch 链路 + 出 dmg）。
+    - **P3 CodeBuddy 回归**：需要安装 CodeBuddy（国内/国际任一）的实机授权；安装后按「注入/会话/签到 + supervisor 的 codebuddy 保守策略」过一遍即可，静态与测试覆盖已就绪。
+    - **P3 内置壁纸**：资产只在上游作者机器上，本机/CI 均无——维持缺失降级；需要时向上游 babygoton/WorkDaddy 拉取或自制后入库（`scripts/builtin`）。
 
 ## 6. 关键风险与约定（接手必读）
 
