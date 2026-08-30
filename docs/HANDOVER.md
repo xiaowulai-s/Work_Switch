@@ -1,6 +1,6 @@
 # WorkSwitch 交接文档
 
-> 更新时间：2026-08-30 · 当前版本：**v0.3.0**（已发布：[run 33299205904](https://github.com/xiaowulai-s/Work_Switch/actions/runs/33299205904) 全绿，Release 唯一资产 `WorkSwitch-All-Setup-0.3.0.exe`）
+> 更新时间：2026-08-30 · 当前版本：**v0.3.1**（已发布：全端单包 `WorkSwitch-All-Setup-0.3.1.exe`；trae 纳入自动更新渠道；apply-update 感知管理器）
 > 本文档面向接手开发者：先读「项目概览」与「开发环境」，再按模块索引查细节。
 > 工作区规范（不可违背的原则、打包 Runbook、验证命令）以根目录 `AGENTS.md` 为准，本文不重复。
 
@@ -146,7 +146,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-win-release.ps
 git -c http.proxy=http://127.0.0.1:7897 push origin main
 ```
 
-**开发机现状（2026-08-30）**：生产由安装版 WorkSwitch All 托管（`%LOCALAPPDATA%\Programs\WorkSwitch All`，登录自启，supervisor 常驻）；Trae 与 WorkBuddy 均以其 daemon 0.2.0 运行中（会在 6h 更新检查中自动升到 0.3.0）。`E:\Demo\WorkSwitch` 为开发目录（当前 main = v0.3.0），其守护已清场，开发时用上面的命令按 profile 手动拉起（注意：dev 与安装版并存时会竞争同一客户端的管理权，开发某端前先 `node scripts/supervisor.js stop`）。
+**开发机现状（2026-08-30）**：生产由安装版 WorkSwitch All 托管（`%LOCALAPPDATA%\Programs\WorkSwitch All`，登录自启，supervisor 常驻）；Trae 与 WorkBuddy 均以其 daemon 0.2.0 运行中（更新渠道会在 6h 检查中自动升级；trae 自 0.3.1 起纳入渠道，本机 trae 需手动重启一次 daemon 进入渠道）。`E:\Demo\WorkSwitch` 为开发目录（当前 main = v0.3.0），其守护已清场，开发时用上面的命令按 profile 手动拉起（注意：dev 与安装版并存时会竞争同一客户端的管理权，开发某端前先 `node scripts/supervisor.js stop`）。
 
 **发版提醒**：① v0.3.0 的 Release notes 需人工补一段「旧 AI 分身用户需手动安装全端版」（generate_release_notes 不会写）；② 本机无 Inno Setup，Setup.exe 编译只由 CI 验证；③ 带中文载荷的接口测试用 python 发送（curl -d 在 Windows 会搞坏 UTF-8）。
 
@@ -158,7 +158,8 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 4. ~~方案 C — All-in-One~~ ✅（v0.2.0/v0.3.0，§3.9/§3.8）
 5. **P2 — Trae 账号能力**：登录态为加密存储 + Cloud-IDE-JWT（失效与刷新问题），切换账号需逆向 trae.cn 账号接口，工作量大、单独排期。
 6. **P2 — Trae 主题能力**：Trae 是 VSCode fork，形态应为「workbench 主题 + CSS 注入」，需新设计而非复用现有 theme 引擎。
-7. **P3 — trae 更新渠道开启评估**：全端安装器已稳定托管 trae，可评估给 trae-work-cn 开 `WorkSwitch-All-` 渠道（当前 null；需同步 update-channel.test.js 与「未登记渠道不触达 Releases API」的约定）。
+7. ~~**P3 — trae 更新渠道开启评估**~~ **已完成并随 v0.3.1 发布（2026-08-30）**：trae-work-cn 纳入 `WorkSwitch-All-` 渠道；前提是 apply-update.ps1 已感知管理器（更新前精确停 supervisor，成功/回滚后重启，由它按需重建生命周期——消除 daemon 自更新与管理器的竞态）。同版还升级 actions/checkout v5（消 Node 20 警告）、补写了 v0.3.0 Release notes（含旧 AI 分身手动迁移说明）。
+   - **内置资产结论**：官方壁纸资产本机与 CI 均不存在（仅上游作者机器有），入库不可行、构建期下载会耦合上游——维持缺失时优雅降级；如未来需要，向上游 babygoton/WorkDaddy 拉取或自制后入库。
 8. **P3 — macOS**：实机确认 Trae mac 包名；mac 打包脚本 WorkSwitch 化；评估 mac 侧 supervisor 等价物（launchd）；CI 增加 mac job。
 9. **P3 — 内置资产**：`WorkDaddy.app`（builtin 壁纸来源）被 gitignore，CI 出的包无官方壁纸；把 `scripts/builtin` 入库或改构建期下载。
 10. **P3 — CodeBuddy 回归**：CORS 白名单、更新渠道、supervisor 的 codebuddy 保守策略都需实机过一遍（本机未装 CodeBuddy，静态+测试覆盖）。
