@@ -250,7 +250,7 @@ function selectPreferredDiscoveredBinary(profileNames, candidates, realpath = fs
   return seen.size ? Array.from(seen.values())[0] : null;
 }
 
-function filterVerifiedNodeProcesses(expectedNode, expectedScript, processes, realpath = fs.realpathSync.native) {
+function filterVerifiedNodeProcesses(expectedNode, expectedScript, processes, realpath = fs.realpathSync.native, expectedProfileId = '') {
   let node;
   let script;
   try {
@@ -286,6 +286,18 @@ function filterVerifiedNodeProcesses(expectedNode, expectedScript, processes, re
     if (entry && path.win32.isAbsolute(entry)) {
       try { scriptMatch = sameWindowsFilePath(resolveWindowsCommandToken(entry, realpath), script); } catch (_) {}
     }
+    // 方案 C：指定 expectedProfileId 时，命令行必须以 --profile=<期望值> 收尾
+    // （同目录多 profile 的 (node, 脚本) 身份相同，profile 参数是唯一区分点）；
+    // 未指定时保持旧行为：脚本后不得有任何参数。
+    if (expectedProfileId) {
+      const profileArg = args[entryIndex + 1];
+      const m = profileArg && /--profile=([a-z0-9-]+)/i.exec(profileArg);
+      if (!m || m[1].toLowerCase() !== String(expectedProfileId).toLowerCase()) continue;
+      if (scriptMatch && args.length === entryIndex + 2) {
+        verified.push({ ...process, ExecutablePath: executable });
+      }
+      continue;
+    }
     if (scriptMatch && args.length === entryIndex + 1) {
       verified.push({ ...process, ExecutablePath: executable });
     }
@@ -293,10 +305,10 @@ function filterVerifiedNodeProcesses(expectedNode, expectedScript, processes, re
   return verified;
 }
 
-function assertVerifiedNodeProcess(pid, expectedNode, expectedScript, processes, realpath = fs.realpathSync.native) {
+function assertVerifiedNodeProcess(pid, expectedNode, expectedScript, processes, realpath = fs.realpathSync.native, expectedProfileId = '') {
   const numericPid = Number(pid);
   if (!Number.isSafeInteger(numericPid) || numericPid <= 0) throw new Error('Invalid process PID');
-  const match = filterVerifiedNodeProcesses(expectedNode, expectedScript, processes, realpath)
+  const match = filterVerifiedNodeProcesses(expectedNode, expectedScript, processes, realpath, expectedProfileId)
     .find((process) => process.ProcessId === numericPid);
   if (!match) throw new Error(`Cannot verify node process identity for PID ${numericPid}`);
   return match;
@@ -320,7 +332,7 @@ function assertDaemonTerminationIdentity(options) {
     throw new Error('daemon listener PID does not match status PID');
   }
   return assertVerifiedNodeProcess(
-    pid, options.expectedNode, options.expectedScript, options.nodeProcesses, options.realpath
+    pid, options.expectedNode, options.expectedScript, options.nodeProcesses, options.realpath, options.expectedProfileId
   );
 }
 

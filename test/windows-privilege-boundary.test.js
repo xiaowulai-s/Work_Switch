@@ -142,8 +142,8 @@ test('daemon status identity binds metadata, listener PID, node path, and script
   const expectedScript = 'C:\\WorkDaddy\\scripts\\daemon.js';
   const process = nativeProcess({
     ProcessId: 301, Name: 'node.exe', ExecutablePath: expectedNode,
-    CommandLine: `"${expectedNode}" --experimental-sqlite "${expectedScript}"`,
-  }, [expectedNode, '--experimental-sqlite', expectedScript]);
+    CommandLine: `"${expectedNode}" --experimental-sqlite "${expectedScript}" --profile=workbuddy-cn`,
+  }, [expectedNode, '--experimental-sqlite', expectedScript, '--profile=workbuddy-cn']);
   const status = { version: '1.0.14', buildId: 'build-a', profile: { id: 'workbuddy-cn' }, privilege: 'standard', pid: 301 };
   const input = {
     status,
@@ -250,8 +250,8 @@ test('watchdog stop terminates only reverified watchdog and direct daemon PIDs',
     const alive = new Set(process.env.TEST_NO_DAEMON === '1' ? [${watchdogPid}] : [${watchdogPid}, ${daemonPid}]);
     const owner = 'DESKTOP\\alice';
     const rows = {
-      ${watchdogPid}: { ProcessId: ${watchdogPid}, ParentProcessId: 100, Name: 'node.exe', ExecutablePath: node, CommandLine: '"' + node + '" --experimental-sqlite "' + watchdog + '"', ArgumentsSource: 'CommandLineToArgvW', Arguments: [node, '--experimental-sqlite', watchdog], Owner: owner, OwnerIsCurrent: process.env.TEST_FOREIGN_OWNER !== '1' },
-      ${daemonPid}: { ProcessId: ${daemonPid}, ParentProcessId: ${watchdogPid}, Name: 'node.exe', ExecutablePath: node, CommandLine: '"' + node + '" --experimental-sqlite "' + daemon + '"', ArgumentsSource: 'CommandLineToArgvW', Arguments: [node, '--experimental-sqlite', daemon], Owner: owner, OwnerIsCurrent: process.env.TEST_FOREIGN_OWNER !== '1' },
+      ${watchdogPid}: { ProcessId: ${watchdogPid}, ParentProcessId: 100, Name: 'node.exe', ExecutablePath: node, CommandLine: '"' + node + '" --experimental-sqlite "' + watchdog + '" --profile=workbuddy-cn', ArgumentsSource: 'CommandLineToArgvW', Arguments: [node, '--experimental-sqlite', watchdog, '--profile=workbuddy-cn'], Owner: owner, OwnerIsCurrent: process.env.TEST_FOREIGN_OWNER !== '1' },
+      ${daemonPid}: { ProcessId: ${daemonPid}, ParentProcessId: ${watchdogPid}, Name: 'node.exe', ExecutablePath: node, CommandLine: '"' + node + '" --experimental-sqlite "' + daemon + '" --profile=workbuddy-cn', ArgumentsSource: 'CommandLineToArgvW', Arguments: [node, '--experimental-sqlite', daemon, '--profile=workbuddy-cn'], Owner: owner, OwnerIsCurrent: process.env.TEST_FOREIGN_OWNER !== '1' },
     };
     cp.spawn = () => { throw new Error('unexpected daemon spawn'); };
     cp.spawnSync = (command, args) => {
@@ -336,8 +336,8 @@ test('watchdog startup repairs a missing PID file for one exact instance', () =>
       if (script.includes("Name -eq 'node.exe'")) {
         return { status: 0, stderr: '', stdout: JSON.stringify({
           ProcessId: ${untrackedPid}, ParentProcessId: 100, Name: 'node.exe', ExecutablePath: node,
-          CommandLine: '"' + node + '" --experimental-sqlite "' + watchdog + '"',
-          ArgumentsSource: 'CommandLineToArgvW', Arguments: [node, '--experimental-sqlite', watchdog],
+          CommandLine: '"' + node + '" --experimental-sqlite "' + watchdog + '" --profile=workbuddy-cn',
+          ArgumentsSource: 'CommandLineToArgvW', Arguments: [node, '--experimental-sqlite', watchdog, '--profile=workbuddy-cn'],
           Owner: 'DESKTOP\\alice', OwnerIsCurrent: true,
         }) };
       }

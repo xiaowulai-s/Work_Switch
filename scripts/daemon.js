@@ -115,7 +115,9 @@ const { createSessionDb, normalizeSessionIdBatch, parameterCount } = require('./
 const { replaceFileWithRetry } = require('./atomic-file-write.js');
 const { parseUiPortState, profileUiPortCandidates } = require('./ui-port.js');
 
-const PROFILE = getProfile();
+// 方案 C（单目录多 profile）：--profile= argv 优先于环境变量，使命令行携带 profile 身份
+const argvProfile = (process.argv.find((a) => /^--profile=/.test(a)) || '');
+const PROFILE = getProfile((argvProfile && argvProfile.split('=')[1]) || undefined);
 const DATA_DIR = defaultDataDir();
 // 版本号：改动 daemon/inject/theme-patches/builtin 资产后递增，launcher 检测到运行中版本不一致会强制用 app 内置代码重启
 // 0.6.6：品牌 HelloBuddy→WorkDaddy 期间版本号未递增，旧 HelloBuddy daemon 会被 launcher 误判为"同版本"而不重启，导致旧代码继续注入；递增后强制升级
@@ -218,8 +220,8 @@ const DATA_DIR = defaultDataDir();
 //        映射为会话行；注入脚本新增 __WBS_PROFILE_KIND__ 维度。
 // 0.0.1：WorkSwitch 首发：面板/安装/更新全链路品牌切换为 WorkSwitch（WorkSwitch / WorkSwitch AI /
 //        WorkSwitch Trae），更新仓库指向 xiaowulai-s/Work_Switch；包含 Trae Work CN 会话支持。
-const DAEMON_VERSION = '0.1.0';
-const DAEMON_BUILD_ID = 'release-0.1.0-20260830-workswitch';
+const DAEMON_VERSION = '0.2.0';
+const DAEMON_BUILD_ID = 'release-0.2.0-20260830-workswitch';
 const HOST = '127.0.0.1';
 const IS_WIN = process.platform === 'win32'; // Windows 移植：平台分支开关（macOS 行为保持不变）
 // Windows 安装目录（install.ps1 铺、launcher 用、更新替换目标），对应 macOS 的 /Applications/WorkDaddy.app

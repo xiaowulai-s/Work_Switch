@@ -28,7 +28,12 @@ const { getProfile, profileDataDir } = require('./profiles.js');
 const WINDOWS_PRIVILEGE = process.platform === 'win32' ? detectWindowsPrivilege() : 'standard';
 
 const SCRIPTS_DIR = __dirname;
-const PROFILE_ID = process.env.WBSWITCH_PROFILE || 'workbuddy-cn';
+// 方案 C（单目录多 profile）：supervisor/launcher 以 --profile= 启动，命令行因此
+// 携带 profile 身份（进程身份判定按它区分同目录的其他 profile 实例）
+const argvProfile = (process.argv.find((a) => /^--profile=/.test(a)) || '');
+const PROFILE_ID = (argvProfile && argvProfile.split('=')[1]) || process.env.WBSWITCH_PROFILE || 'workbuddy-cn';
+// 本实例是否带 --profile= 启动：带则只认同 flag 同值的其他实例；不带则只认不带 flag 的（旧版分身兼容）
+const SELF_PROFILE_FLAG = Boolean(argvProfile);
 const PROFILE = getProfile(PROFILE_ID);
 const DATA_DIR =
   process.env.WBSWITCH_DATA_DIR ||
@@ -130,8 +135,16 @@ function pidFileState() {
   const pid = readPidFile();
   if (!pid) {
     const untracked = filterVerifiedNodeProcesses(
-      process.execPath, __filename, queryWatchdogProcesses()
+      process.execPath, __filename, queryWatchdogProcesses(), undefined, PROFILE_ID
     ).filter((item) => item.ProcessId !== process.pid)
+      // 同目录可承载多个 profile：只把「同 profile」的 watchdog 视为单实例候选。
+      // 候选命令行带 --profile=X 时必须 X 等于本实例；不带 flag 的旧实例只与本实例
+      // 也不带 flag 时互认（新版实例永远带 flag，旧分身安装不受影响）。
+      .filter((item) => {
+        const m = /--profile=([a-z0-9-]+)/i.exec(String(item.CommandLine || ''));
+        if (!m) return !SELF_PROFILE_FLAG;
+        return m[1].toLowerCase() === PROFILE_ID.toLowerCase();
+      })
       .map((item) => assertSameProcessIdentity(item, item));
     if (untracked.length === 1) {
       // The PID file is only a lock hint. A single exact watchdog process is
@@ -147,7 +160,7 @@ function pidFileState() {
   if (pid === process.pid) return { kind: 'self', pid };
   const processes = queryWatchdogProcessFamily(pid);
   if (!processes.length) return { kind: 'stale', pid };
-  const watchdog = assertVerifiedNodeProcess(pid, process.execPath, __filename, processes);
+  const watchdog = assertVerifiedNodeProcess(pid, process.execPath, __filename, processes, undefined, PROFILE_ID);
   assertSameProcessIdentity(watchdog, watchdog);
   return { kind: 'verified', pid, watchdog, processes };
 }
@@ -159,7 +172,7 @@ function removePidFileIf(pid) {
 }
 
 function verifiedDaemonChildren(watchdogPid, processes) {
-  const matches = filterVerifiedNodeProcesses(process.execPath, DAEMON_FILE, processes)
+  const matches = filterVerifiedNodeProcesses(process.execPath, DAEMON_FILE, processes, undefined, PROFILE_ID)
     .map((item) => assertSameProcessIdentity(item, item));
   for (const daemon of matches) {
     if (!Number.isSafeInteger(daemon.ParentProcessId) || daemon.ParentProcessId !== watchdogPid) {
@@ -176,7 +189,7 @@ function terminateVerifiedProcess(original, expectedScript, label, expectedParen
     throw new Error(`结束前无法再次验证 ${label} PID=${original.ProcessId}`);
   }
   const verified = assertVerifiedNodeProcess(
-    original.ProcessId, process.execPath, expectedScript, processes
+    original.ProcessId, process.execPath, expectedScript, processes, undefined, PROFILE_ID
   );
   assertSameProcessIdentity(original, verified);
   if (expectedParentPid !== undefined && verified.ParentProcessId !== expectedParentPid) {
@@ -263,7 +276,8 @@ let restartDelay = 3000; // 初始 3s，连续崩溃递增，上限 60s
 function startDaemon() {
   if (stopping) return;
   const node = process.execPath;
-  const args = ['--experimental-sqlite', DAEMON_FILE];
+  // 命令行携带 profile：同目录多 profile 时身份判定（launcher/orphan 检查）依赖它
+  const args = ['--experimental-sqlite', DAEMON_FILE, '--profile=' + PROFILE_ID];
   log('启动 daemon: ' + node + ' ' + args.join(' '));
   child = spawn(node, args, { stdio: 'ignore', windowsHide: true, env: process.env });
   child.on('error', (e) => {

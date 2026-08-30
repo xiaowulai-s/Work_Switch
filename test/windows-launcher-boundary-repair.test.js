@@ -115,8 +115,8 @@ test('launcher enumerates exact lifecycle entries and never kills process trees'
   assert.doesNotMatch(launcherSource, /taskkill[^\r\n]*['"]\/T['"]/i);
   assert.doesNotMatch(launcherSource, /includeTree/);
   assert.match(launcherSource, /queryNodeProcesses\(nodeBin/);
-  assert.match(launcherSource, /uniqueNodeProcess\(nodeBin, WATCHDOG_SCRIPT\)/);
-  assert.match(launcherSource, /uniqueNodeProcess\(nodeBin, DAEMON_SCRIPT\)/);
+  assert.match(launcherSource, /uniqueNodeProcess\(nodeBin, WATCHDOG_SCRIPT, PROFILE\.id\)/); // 方案 C：按 profile 收窄身份匹配
+  assert.match(launcherSource, /uniqueNodeProcess\(nodeBin, DAEMON_SCRIPT, PROFILE\.id\)/); // 方案 C：按 profile 收窄身份匹配
   assert.match(launcherSource, /queryNodeProcesses\(nodeBin, null, path\.basename\(expectedScript\)\)/);
   assert.match(launcherSource, /watchdog\.pid 已从陈旧 PID=/);
   assert.match(launcherSource, /普通权限 launcher 复用已验证的 elevated 服务/);
@@ -218,8 +218,8 @@ test('daemon termination authorization is bound to current profile status and li
     ProcessId: 716,
     Name: 'node.exe',
     ExecutablePath: node,
-    CommandLine: `"${node}" "${script}"`,
-  }, [node, script]);
+    CommandLine: `"${node}" "${script}" --profile=workbuddy-cn`,
+  }, [node, script, '--profile=workbuddy-cn']);
   const input = {
     status: { pid: 716, profile: { id: 'workbuddy-cn' }, privilege: 'standard' },
     expectedProfileId: 'workbuddy-cn',

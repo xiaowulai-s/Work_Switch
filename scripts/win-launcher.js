@@ -719,11 +719,22 @@ function queryNodeProcesses(nodeBin, pids = null, commandLineHint = '') {
   });
 }
 
-function uniqueNodeProcess(nodeBin, expectedScript) {
-  const matches = filterVerifiedNodeProcesses(
+function cmdlineMatchesProfile(commandLine, profileId) {
+  // 方案 C：同目录多 profile 的 (node, 脚本) 身份完全相同，命令行 --profile= 是
+  // 唯一区分点。不带 flag 的旧进程保守视为同 profile（不同分身安装靠脚本路径区分）。
+  const m = /--profile=([a-z0-9-]+)/i.exec(String(commandLine || ''));
+  if (!m) return true;
+  return m[1].toLowerCase() === String(profileId || '').toLowerCase();
+}
+
+function uniqueNodeProcess(nodeBin, expectedScript, profileId) {
+  // 方案 C：profileId 透传给过滤器，使命令行必须以 --profile=<profileId> 收尾
+  let matches = filterVerifiedNodeProcesses(
     nodeBin,
     expectedScript,
-    queryNodeProcesses(nodeBin, null, path.basename(expectedScript))
+    queryNodeProcesses(nodeBin, null, path.basename(expectedScript)),
+    undefined,
+    profileId || ''
   );
   if (matches.length > 1) throw new Error(`目标 Node 入口存在多个进程: ${expectedScript}`);
   return matches[0] || null;
@@ -743,7 +754,7 @@ function readWatchdogPid() {
 
 async function watchdogState(nodeBin) {
   let pid = readWatchdogPid();
-  let exact = uniqueNodeProcess(nodeBin, WATCHDOG_SCRIPT);
+  let exact = uniqueNodeProcess(nodeBin, WATCHDOG_SCRIPT, PROFILE.id);
   if (!pid) {
     // A detached watchdog can be visible to CIM a moment before its atomic
     // PID-file write becomes visible. Give that startup race a short window;
@@ -753,7 +764,7 @@ async function watchdogState(nodeBin) {
       if (attempt > 0) await sleep(250);
       pid = readWatchdogPid();
       if (pid) break;
-      exact = uniqueNodeProcess(nodeBin, WATCHDOG_SCRIPT);
+      exact = uniqueNodeProcess(nodeBin, WATCHDOG_SCRIPT, PROFILE.id);
     }
   }
   if (!pid && exact) {
@@ -793,7 +804,7 @@ async function watchdogState(nodeBin) {
     }
     return { kind: 'stale', pid };
   }
-  const process = assertVerifiedNodeProcess(pid, nodeBin, WATCHDOG_SCRIPT, processes);
+  const process = assertVerifiedNodeProcess(pid, nodeBin, WATCHDOG_SCRIPT, processes, undefined, PROFILE.id);
   if (!exact || exact.ProcessId !== pid) throw new Error('watchdog.pid 与枚举到的精确 watchdog 进程不一致');
   assertSameProcessIdentity(exact, process);
   return { kind: 'verified', pid, process };
@@ -807,7 +818,7 @@ function validateDaemonProcess(nodeBin, status = null) {
     throw new Error('daemon 状态 PID 无效或与监听 PID 不一致');
   }
   const processes = queryNodeProcesses(nodeBin, listeners);
-  assertVerifiedNodeProcess(listeners[0], nodeBin, DAEMON_SCRIPT, processes);
+  assertVerifiedNodeProcess(listeners[0], nodeBin, DAEMON_SCRIPT, processes, undefined, PROFILE.id);
   return { listenerPids: listeners, nodeProcesses: processes };
 }
 
@@ -912,7 +923,7 @@ async function stopDaemonByPort(nodeBin, allowLowerPrivilege = false) {
   }
   const listeners = listenerPids(UI_PORT);
   if (listeners.length > 1) throw new Error('daemon 监听 PID 不唯一');
-  const daemon = uniqueNodeProcess(nodeBin, DAEMON_SCRIPT);
+  const daemon = uniqueNodeProcess(nodeBin, DAEMON_SCRIPT, PROFILE.id);
   let authorizedDaemon = null;
   if (daemon || listeners.length) {
     const status = await readStatus();
@@ -935,12 +946,12 @@ async function stopDaemonByPort(nodeBin, allowLowerPrivilege = false) {
   if (authorizedDaemon) killVerifiedNodeProcess(authorizedDaemon, nodeBin, DAEMON_SCRIPT);
   await sleep(300);
   // 终止窗口内出现的 daemon 没有独立的端口与 status 绑定证据，绝不自动结束。
-  const remainingDaemon = uniqueNodeProcess(nodeBin, DAEMON_SCRIPT);
+  const remainingDaemon = uniqueNodeProcess(nodeBin, DAEMON_SCRIPT, PROFILE.id);
   if (remainingDaemon) {
     throw new Error('发现未绑定当前 profile 状态的新 daemon 进程，拒绝结束');
   }
   await sleep(300);
-  if (uniqueNodeProcess(nodeBin, DAEMON_SCRIPT) || listenerPids(UI_PORT).length || await portOpen(UI_PORT)) {
+  if (uniqueNodeProcess(nodeBin, DAEMON_SCRIPT, PROFILE.id) || listenerPids(UI_PORT).length || await portOpen(UI_PORT)) {
     throw new Error('daemon 停止失败，端口仍被占用');
   }
 }
@@ -999,12 +1010,12 @@ async function ensureDaemon(nodeBin) {
     log('已清理确认不存在的旧 watchdog.pid，继续启动');
     watchdog = { kind: 'absent', pid: null };
   }
-  const orphanDaemon = uniqueNodeProcess(nodeBin, DAEMON_SCRIPT);
+  const orphanDaemon = uniqueNodeProcess(nodeBin, DAEMON_SCRIPT, PROFILE.id);
   if (orphanDaemon) {
     throw new Error('发现未绑定当前 UI 端口与当前 profile 状态的 daemon 进程，拒绝结束或启动重复实例');
   }
   log('启动 watchdog: ' + nodeBin);
-  const child = spawn(nodeBin, [WATCHDOG_SCRIPT], { detached: true, stdio: 'ignore', windowsHide: true });
+  const child = spawn(nodeBin, [WATCHDOG_SCRIPT, '--profile=' + PROFILE.id], { detached: true, stdio: 'ignore', windowsHide: true });
   child.unref();
   if (await waitForExactDaemon(nodeBin, 30)) {
     log('daemon 已通过完整身份校验');
