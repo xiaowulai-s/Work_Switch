@@ -2,7 +2,7 @@
 param(
   [string]$OutputDirectory = '',
   [string]$IsccPath = '',
-  [ValidateSet('workbuddy-cn', 'workbuddy-ai', 'trae-work-cn')][string]$Profile = 'workbuddy-cn',
+  [ValidateSet('workbuddy-cn', 'workbuddy-ai', 'trae-work-cn', 'all')][string]$Profile = 'workbuddy-cn',
   [string]$Version = ''
 )
 
@@ -17,13 +17,15 @@ if (-not $versionMatch.Success) { throw 'daemon.js does not contain DAEMON_VERSI
 $version = if ([string]::IsNullOrWhiteSpace($Version)) { $versionMatch.Groups[1].Value } else { $Version.Trim() }
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid daemon version: $version" }
 
-$productName = if ($Profile -eq 'workbuddy-ai') { 'WorkSwitch AI' } elseif ($Profile -eq 'trae-work-cn') { 'WorkSwitch Trae' } else { 'WorkSwitch' }
-$packageName = if ($Profile -eq 'workbuddy-ai') { 'WorkSwitch-AI' } elseif ($Profile -eq 'trae-work-cn') { 'WorkSwitch-Trae' } else { 'WorkSwitch' }
-$startDescription = if ($Profile -eq 'workbuddy-ai') { '创建 WorkSwitch AI 桌面快捷方式' } elseif ($Profile -eq 'trae-work-cn') { '创建 WorkSwitch Trae 桌面快捷方式' } else { '创建 WorkSwitch 桌面快捷方式' }
+$productName = if ($Profile -eq 'workbuddy-ai') { 'WorkSwitch AI' } elseif ($Profile -eq 'trae-work-cn') { 'WorkSwitch Trae' } elseif ($Profile -eq 'all') { 'WorkSwitch All' } else { 'WorkSwitch' }
+$packageName = if ($Profile -eq 'workbuddy-ai') { 'WorkSwitch-AI' } elseif ($Profile -eq 'trae-work-cn') { 'WorkSwitch-Trae' } elseif ($Profile -eq 'all') { 'WorkSwitch-All' } else { 'WorkSwitch' }
+$startDescription = if ($Profile -eq 'all') { '注册 WorkSwitch 管理器自启动并启动（推荐）' } elseif ($Profile -eq 'workbuddy-ai') { '创建 WorkSwitch AI 桌面快捷方式' } elseif ($Profile -eq 'trae-work-cn') { '创建 WorkSwitch Trae 桌面快捷方式' } else { '创建 WorkSwitch 桌面快捷方式' }
 $appGuid = if ($Profile -eq 'workbuddy-ai') {
   '{{D1A8A90C-1F55-4E56-8BB2-7F12A39B9D12}'
 } elseif ($Profile -eq 'trae-work-cn') {
   '{{7C3E2F84-96B1-4A57-8D3E-5A10C2B46E91}'
+} elseif ($Profile -eq 'all') {
+  '{{A31F6C42-58D2-4B07-9E44-6F83B25C71D8}'
 } else {
   '{{4B857D52-8C5A-4A9A-A17D-0EE8A34A12C7}'
 }

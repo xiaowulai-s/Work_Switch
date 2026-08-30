@@ -64,8 +64,13 @@ Source: "{#StageRoot}\scripts\*"; DestDir: "{app}\scripts"; Excludes: "prepare-w
 Source: "{#StageRoot}\scripts\runtime\node\*"; DestDir: "{app}\scripts\runtime\node"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldReplaceRuntime
 
 [Icons]
+#if ProfileId == "all"
+; 方案 C：管理器自启动即覆盖全部客户端，快捷方式只保留开始菜单的管理器入口
+Name: "{group}\{#ProductName}"; Filename: "{sys}\wscript.exe"; Parameters: "//nologo ""{app}\scripts\supervisor-hidden.vbs"""; WorkingDir: "{app}\scripts"; IconFilename: "{app}\scripts\WorkDaddy.ico"
+#else
 Name: "{group}\{#ProductName}"; Filename: "{sys}\wscript.exe"; Parameters: "//nologo ""{app}\scripts\launcher-hidden.vbs"""; WorkingDir: "{app}\scripts"; IconFilename: "{app}\scripts\WorkDaddy.ico"
 Name: "{userdesktop}\{#ProductName}"; Filename: "{sys}\wscript.exe"; Parameters: "//nologo ""{app}\scripts\launcher-hidden.vbs"""; WorkingDir: "{app}\scripts"; IconFilename: "{app}\scripts\WorkDaddy.ico"
+#endif
 
 [Run]
 Filename: "{#PowerShellPath}"; Description: "{#StartDescription}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File ""{app}\scripts\install-win.ps1"" -SrcDir ""{app}\scripts"" -AppDir ""{app}"" -Profile ""{#ProfileId}"""; WorkingDir: "{app}\scripts"; Flags: waituntilterminated postinstall skipifsilent

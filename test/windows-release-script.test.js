@@ -61,3 +61,33 @@ test('Windows installer excludes the repair prompt from all release stages', () 
   assert.doesNotMatch(installerBuild, /Test-Path[\s\S]{0,160}安装失败自主解决提示词/);
   assert.doesNotMatch(iss, /Source:.*安装失败自主解决提示词/);
 });
+
+test('All-in-one package mode: staging skips branding and ships the supervisor', () => {
+  const zipBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'build-win-zip.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'build-win-installer.ps1'), 'utf8');
+  const iss = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'win', 'workdaddy.iss'), 'utf8');
+  const install = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'install-win.ps1'), 'utf8');
+  const uninstall = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'uninstall-win.ps1'), 'utf8');
+  const prepare = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'prepare-win-install.ps1'), 'utf8');
+  const verify = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'verify-win.cmd'), 'utf8');
+  // zip 脚本：all 模式独立命名，且不做默认 profile / ps1 占位符替换
+  assert.match(zipBuild, /all\) PACKAGE_NAME="WorkSwitch-All"/);
+  assert.match(zipBuild, /if profile != 'all':/);
+  // installer：all 在 ValidateSet、命名与独立 AppId 里
+  assert.match(installer, /'trae-work-cn', 'all'/);
+  assert.match(installer, /\$Profile -eq 'all'\) \{ 'WorkSwitch All' \}/);
+  assert.match(installer, /A31F6C42-58D2-4B07-9E44-6F83B25C71D8/);
+  // iss：all 模式快捷方式指向 supervisor 隐藏启动器
+  assert.match(iss, /#if ProfileId == "all"/);
+  assert.match(iss, /supervisor-hidden\.vbs/);
+  // install：all 分支注册管理器自启并清理旧分身自启项
+  assert.match(install, /if \(\$Profile -eq 'all'\) \{/);
+  assert.match(install, /WorkSwitchAll/);
+  assert.match(install, /supervisor-hidden\.vbs/);
+  // uninstall：all 分支停管理器与全部 profile 生命周期
+  assert.match(uninstall, /supervisor\.pid/);
+  // prepare：all 分支循环停止全部生命周期
+  assert.match(prepare, /\$Profile -eq 'all'/);
+  // 自检清单包含管理器文件
+  assert.match(verify, /supervisor\.js supervisor-hidden\.vbs/);
+});

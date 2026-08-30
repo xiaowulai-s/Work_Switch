@@ -52,6 +52,7 @@ fi
 case "$PROFILE" in
   workbuddy-ai) PACKAGE_NAME="WorkSwitch AI"; OUT="release/windows/WorkSwitch-AI-${VERSION}-win64.zip" ;;
   trae-work-cn) PACKAGE_NAME="WorkSwitch Trae"; OUT="release/windows/WorkSwitch-Trae-${VERSION}-win64.zip" ;;
+  all) PACKAGE_NAME="WorkSwitch-All"; OUT="release/windows/WorkSwitch-All-${VERSION}-win64.zip" ;;
   *) PROFILE="workbuddy-cn"; PACKAGE_NAME="WorkSwitch"; OUT="release/windows/WorkSwitch-${VERSION}-win64.zip" ;;
 esac
 
@@ -186,14 +187,17 @@ scripts = sys.argv[1]
 profile = os.environ['PROFILE']
 build_version = os.environ.get('BUILD_VERSION', '')
 
-# win-launcher.js：默认 profile（仅当源码仍是 || 'workbuddy-cn' 时替换）
+# win-launcher.js：默认 profile（仅当源码仍是 || 'workbuddy-cn' 时替换）。
+# all 模式（方案 C）保留源码默认值：supervisor 以环境变量显式指定 profile，
+# 手动运行 launcher 不带环境变量时回落 workbuddy-cn（文档化行为）。
 wl = os.path.join(scripts, 'win-launcher.js')
 with open(wl, encoding='utf-8') as f:
     s = f.read()
-old = "process.env.WBSWITCH_PROFILE || 'workbuddy-cn'"
-new = "process.env.WBSWITCH_PROFILE || '%s'" % profile
-if old in s:
-    s = s.replace(old, new, 1)
+if profile != 'all':
+    old = "process.env.WBSWITCH_PROFILE || 'workbuddy-cn'"
+    new = "process.env.WBSWITCH_PROFILE || '%s'" % profile
+    if old in s:
+        s = s.replace(old, new, 1)
 with open(wl, 'w', encoding='utf-8', newline='') as f:
     f.write(s)
 
@@ -241,9 +245,11 @@ for name in ('install-win.ps1', 'uninstall-win.ps1', 'apply-update.ps1'):
     p = os.path.join(scripts, name)
     with open(p, encoding='utf-8-sig') as f:
         s = f.read()
-    pat = "[string]$Profile = '__WBS_DEFAULT_PROFILE__'"
-    if pat in s:
-        s = s.replace(pat, "[string]$Profile = '%s'" % profile, 1)
+    # all 模式保留占位符：iss 显式传 -Profile all，ps1 内部自带 all 分支
+    if profile != 'all':
+        pat = "[string]$Profile = '__WBS_DEFAULT_PROFILE__'"
+        if pat in s:
+            s = s.replace(pat, "[string]$Profile = '%s'" % profile, 1)
     with open(p, 'w', encoding='utf-8-sig', newline='') as f:
         f.write(s)
 PY

@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$BoundaryPath,
   [Parameter(Mandatory = $true)][string]$AppDir,
-  [ValidateSet('workbuddy-cn', 'workbuddy-ai', 'trae-work-cn')][string]$Profile = 'workbuddy-cn',
+  [ValidateSet('workbuddy-cn', 'workbuddy-ai', 'trae-work-cn', 'all')][string]$Profile = 'workbuddy-cn',
   [Parameter(Mandatory = $true)][string]$ExpectedVersion
 )
 
@@ -25,6 +25,24 @@ try {
     (New-Object Text.UTF8Encoding($false)))
   . $BoundaryPath
   $dataRoot = Join-Path $env:APPDATA 'WorkDaddy'
+  # 方案 C：全端模式重装时，停掉本安装目录下全部 profile 的生命周期（标准权限下失败即中止）
+  if ($Profile -eq 'all') {
+    $prepareTargets = @(
+      @{ DataDir = $dataRoot; Port = 47832 },
+      @{ DataDir = (Join-Path $dataRoot 'profiles\workbuddy-ai'); Port = 47833 },
+      @{ DataDir = (Join-Path $dataRoot 'profiles\codebuddy-cn'); Port = 47834 },
+      @{ DataDir = (Join-Path $dataRoot 'profiles\codebuddy-intl'); Port = 47835 },
+      @{ DataDir = (Join-Path $dataRoot 'profiles\trae-work-cn'); Port = 47836 }
+    )
+    foreach ($t in $prepareTargets) {
+      Stop-VerifiedWorkDaddyLifecycle `
+        -DataDir $t.DataDir `
+        -Port $t.Port `
+        -ExpectedWatchdogScript (Join-Path $AppDir 'scripts\watchdog.js') `
+        -ExpectedDaemonScript (Join-Path $AppDir 'scripts\daemon.js') | Out-Null
+    }
+    exit 0
+  }
   $dataDir = if ($Profile -eq 'workbuddy-ai') { Join-Path $dataRoot 'profiles\workbuddy-ai' } elseif ($Profile -eq 'trae-work-cn') { Join-Path $dataRoot 'profiles\trae-work-cn' } else { $dataRoot }
   $uiPort = if ($Profile -eq 'workbuddy-ai') { 47833 } elseif ($Profile -eq 'trae-work-cn') { 47836 } else { 47832 }
   Stop-VerifiedWorkDaddyLifecycle `

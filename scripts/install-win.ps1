@@ -25,7 +25,7 @@ try { . (Join-Path $PSScriptRoot 'windows-process-boundary.ps1') } catch {
 }
 $ErrorActionPreference = 'Continue'
 if ([string]::IsNullOrWhiteSpace($Profile) -or $Profile -eq '__WBS_DEFAULT_PROFILE__') { $Profile = 'workbuddy-cn' }
-if ($Profile -ne 'workbuddy-ai' -and $Profile -ne 'trae-work-cn') { $Profile = 'workbuddy-cn' }
+if ($Profile -ne 'workbuddy-ai' -and $Profile -ne 'trae-work-cn' -and $Profile -ne 'all') { $Profile = 'workbuddy-cn' }
 $env:WBSWITCH_PROFILE = $Profile
 $productName = if ($Profile -eq 'workbuddy-ai') { 'WorkSwitch AI' } elseif ($Profile -eq 'trae-work-cn') { 'WorkSwitch Trae' } else { 'WorkSwitch' }
 if ([string]::IsNullOrWhiteSpace($AppDir)) { $AppDir = Join-Path $env:LOCALAPPDATA (Join-Path 'Programs' $productName) }
@@ -37,6 +37,91 @@ $env:WBSWITCH_PORT = [string]$uiPort
 $sentryReporter = Join-Path $SrcDir 'sentry-report.js'
 $nodeBin = $null
 $preserveExistingLifecycle = $false
+
+# ===== 方案 C：全端模式（Profile = all）=====
+# 一个安装承载全部客户端：安装时精确停旧分身生命周期，注册管理器登录自启并启动。
+# 之后用户正常打开任意受支持的客户端，管理器会自动补齐 daemon 并注入。
+if ($Profile -eq 'all') {
+  if ([string]::IsNullOrWhiteSpace($AppDir) -or $AppDir -eq (Join-Path $env:LOCALAPPDATA (Join-Path 'Programs' $productName))) {
+    $AppDir = Join-Path $env:LOCALAPPDATA (Join-Path 'Programs' 'WorkSwitch All')
+  }
+  $targetScripts = Join-Path $AppDir 'scripts'
+  $supervisorVbs = Join-Path $targetScripts 'supervisor-hidden.vbs'
+  $runKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+
+  # 1) 停旧分身安装的生命周期（按各旧安装目录的脚本身份精确匹配；目录不存在则跳过）
+  $dataRootOld = Join-Path $env:APPDATA 'WorkDaddy'
+  $oldInstalls = @(
+    @{ Root = (Join-Path $env:LOCALAPPDATA (Join-Path 'Programs' 'WorkSwitch'));     DataDir = $dataRootOld; Port = 47832 },
+    @{ Root = (Join-Path $env:LOCALAPPDATA (Join-Path 'Programs' 'WorkSwitch AI'));  DataDir = (Join-Path $dataRootOld 'profiles\workbuddy-ai'); Port = 47833 },
+    @{ Root = (Join-Path $env:LOCALAPPDATA (Join-Path 'Programs' 'WorkSwitch Trae')); DataDir = (Join-Path $dataRootOld 'profiles\trae-work-cn'); Port = 47836 }
+  )
+  foreach ($old in $oldInstalls) {
+    if (-not (Test-Path (Join-Path $old.Root 'scripts\watchdog.js'))) { continue }
+    try {
+      Stop-VerifiedWorkDaddyLifecycle `
+        -DataDir $old.DataDir `
+        -Port $old.Port `
+        -ExpectedWatchdogScript (Join-Path $old.Root 'scripts\watchdog.js') `
+        -ExpectedDaemonScript (Join-Path $old.Root 'scripts\daemon.js')
+      Write-InstallLine ('  已停止旧分身安装: ' + $old.Root)
+    } catch {
+      Write-InstallLine ('  提示: 旧分身停止失败（已忽略，不影响本安装）: ' + $_.Exception.Message)
+    }
+  }
+
+  # 2) 复制脚本到安装目录（跳过自拷贝场景）
+  if (-not (Test-Path (Join-Path $SrcDir 'supervisor.js'))) {
+    Write-InstallLine '错误：源目录中找不到 supervisor.js，请使用完整安装包。'
+    exit 1
+  }
+  New-Item -ItemType Directory -Force -Path $targetScripts | Out-Null
+  $sourceFull = [IO.Path]::GetFullPath($SrcDir).TrimEnd('\')
+  $targetFull = [IO.Path]::GetFullPath($targetScripts).TrimEnd('\')
+  if (-not [StringComparer]::OrdinalIgnoreCase.Equals($sourceFull, $targetFull)) {
+    $launcherToReplace = Join-Path $targetScripts 'launcher.cmd'
+    if (-not (Release-VerifiedLauncherLock -LauncherPath $launcherToReplace)) {
+      Write-InstallLine "复制前无法释放 launcher.cmd 文件锁: $launcherToReplace"
+      exit 2
+    }
+    $copyArgs = @($SrcDir, $targetScripts, '/E', '/XF', '*.log', '.DS_Store', '/XD', (Join-Path $SrcDir 'win\probe'), '/R:2', '/W:1')
+    & robocopy @copyArgs
+    if ($LASTEXITCODE -ge 8) {
+      Write-InstallLine ('复制失败（robocopy=' + $LASTEXITCODE + '）')
+      exit 2
+    }
+  }
+
+  # 3) 注册管理器登录自启（仅本项；清理旧分身的自启残留）
+  try {
+    foreach ($runName in @('WorkSwitch', 'WorkSwitch AI', 'WorkSwitch Trae', 'WorkDaddy', 'WorkDaddy AI', 'WorkDaddy Trae')) {
+      Remove-ItemProperty -Path $runKeyPath -Name $runName -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $supervisorVbs) {
+      New-ItemProperty -Path $runKeyPath -Name 'WorkSwitchAll' -Value ('"' + (Join-Path $env:WINDIR 'System32\wscript.exe') + '" //nologo "' + $supervisorVbs + '"') -PropertyType String -Force | Out-Null
+      Write-InstallLine '  自启：已注册 WorkSwitch 管理器（登录后自动监管所有客户端）'
+    } else {
+      Write-InstallLine '  警告：supervisor-hidden.vbs 缺失，未注册自启'
+    }
+  } catch {
+    Write-InstallLine ('  自启注册失败: ' + $_.Exception.Message)
+  }
+
+  # 4) 启动管理器
+  if (Test-Path $supervisorVbs) {
+    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList ('//nologo "' + $supervisorVbs + '"') -WorkingDirectory $targetScripts
+    Write-InstallLine '  管理器已启动（检测到客户端运行时会自动补齐扩展服务）'
+  }
+
+  Write-InstallLine '=============================================================='
+  Write-InstallLine ' WorkSwitch 全端版安装完成！'
+  Write-InstallLine ('  安装目录 : ' + $AppDir)
+  Write-InstallLine '  使用方式 : 正常打开 WorkBuddy / WorkBuddy AI / CodeBuddy / Trae 即可，'
+  Write-InstallLine '             管理器会自动为每个客户端注入对应扩展功能。'
+  Write-InstallLine '  卸载     : 运行安装目录 scripts\uninstall-win.ps1 -Profile all'
+  Write-InstallLine '=============================================================='
+  exit 0
+}
 
 # WorkBuddy 通常自带 Node；安装失败上报不依赖 npm 或 Electron。
 try {
