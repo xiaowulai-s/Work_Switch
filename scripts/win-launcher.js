@@ -1080,22 +1080,30 @@ async function killForExit(args, stage, verifyGone) {
   return result;
 }
 
-async function killVerifiedWorkBuddyProcess(binary, process, force, stage) {
+async function killVerifiedWorkBuddyProcess(binary, process, force, stage, tolerate = false) {
   const pid = Number(process.ProcessId);
   const current = workBuddyProcesses(binary).find((item) => Number(item.ProcessId) === pid);
   if (!current) return false;
   assertSameProcessIdentity(process, current);
-  await killForExit(
-    [...(force ? ['/F'] : []), '/PID', String(pid)],
-    stage,
-    async () => {
-      const after = workBuddyProcesses(binary).find((item) => Number(item.ProcessId) === pid);
-      if (!after) return true;
-      assertSameProcessIdentity(process, after);
-      return false;
-    }
-  );
-  return true;
+  try {
+    await killForExit(
+      [...(force ? ['/F'] : []), '/PID', String(pid)],
+      stage,
+      async () => {
+        const after = workBuddyProcesses(binary).find((item) => Number(item.ProcessId) === pid);
+        if (!after) return true;
+        assertSameProcessIdentity(process, after);
+        return false;
+      }
+    );
+    return true;
+  } catch (error) {
+    // 优雅轮（force=false）的 taskkill 失败常是 GUI 子进程不处理 WM_CLOSE：
+    // 不在此中断流程，交给紧随其后的强制轮次（身份仍会逐个复验，保持 fail-closed）。
+    if (!tolerate) throw error;
+    log(`[exit] ${stage} taskkill 失败但继续（由强制轮次处理）: ${error.message}`);
+    return false;
+  }
 }
 
 async function quitWorkBuddy(binary) {
@@ -1110,7 +1118,7 @@ async function quitWorkBuddy(binary) {
   // 按实际 PID 精确结束安装目录中的进程树：每个成员都先经 CIM 路径验证，
   // 再逐 PID 结束，不按镜像名或未验证 PID 兜底。
   for (const process of initial) {
-    await killVerifiedWorkBuddyProcess(binary, process, false, '结束已验证进程');
+    await killVerifiedWorkBuddyProcess(binary, process, false, '结束已验证进程', true);
   }
   if (await waitForWorkBuddyExit(2500, binary)) {
     log(`[exit] 已确认退出 profile=${PROFILE.id} snapshot=${JSON.stringify(exitSnapshot(binary))}`);
