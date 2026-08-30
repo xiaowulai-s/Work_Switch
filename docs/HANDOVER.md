@@ -42,7 +42,7 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
 
 **2026-08-30 新增（分支 feat/trae-models，未发版）：**
 
-5. **Trae 在线模型列表/切换**（daemon 0.1.0）：模型 tab 对 trae 实装（Auto Mode 置顶 + 内置模型分组 + 倍率/受限标签），渲染层收集器 `__wbsTraeModels` 临时展开官方下拉收割后恢复，daemon 新增 `/api/trae/models`（GET）与 `/api/trae/models/switch`（POST，`key` 为模型 display_name，`__auto__`=Auto Mode）。实机全链路验证通过。实现细节与坑见 §3.7。
+5. **Trae 在线模型列表/切换 + 会话重命名/删除**（daemon 0.1.0）：模型 tab 对 trae 实装（Auto Mode 置顶 + 内置模型分组 + 倍率/受限标签），收集器 `__wbsTraeModels` 临时展开官方下拉收割后恢复；`__wbsTraeSessionOps` 走侧栏「更多」菜单完成重命名/删除（不触达云 API，无 token 处理）。API：`/api/trae/models`（GET）、`/api/trae/models/switch`、`/api/trae/sessions/rename`、`/api/trae/sessions/delete`（均 POST）。实机全链路验证通过。细节与坑见 §3.7。
 
 **明确未做（见 §5 开发计划）：** Trae 的模型/账号/主题能力、macOS 包、macOS Trae 包名实机确认。
 
@@ -100,7 +100,10 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
   3. **受限模型与普通模型的渲染路径不同**：受限项的 fiber 链上有 `item`/`onItemClick` prop，普通项没有——模型显示名必须从 `.core-model-select-model-item-name` DOM 子元素读取，fiber item 仅作补充元数据。
 - **UI**（`buildTraeModelsPane`，buildModelsPane 按 `WBS_PROFILE_KIND === 'trae'` 分流）：Auto Mode 置顶行 + 分组头 + 行内倍率/无权限胶囊；restricted 行灰显不可点；事件委托 + Enter/Space 键盘可达；刷新按钮 id 为 `wbs-trae-model-refresh`（不得撞 WorkBuddy 的 `wbs-model-refresh`——update-layout.test.js 有静态断言）。
 - **API**：`GET /api/trae/models`、`POST /api/trae/models/switch {key}`（`__auto__`=Auto Mode）；仅 `PROFILE.kind === 'trae'`，鉴权走 handleApi 全局门。面板 `api()` 对 `!ok` 抛错，切换失败会重载列表并显示 tip。
-- **测试**：`test/trae-models.test.js`（收集器/路由/UI 分流的静态护栏）+ profiles.test.js 能力组合更新。运行时行为只在 Trae 实机验证过，无 Trae 环境时这些静态断言是唯一护栏。
+- **会话重命名/删除**（`__wbsTraeSessionOps`，kind=trae）：重命名驱动侧栏「更多」菜单（行 `taskMoreB` 按钮 → `.task-list-menu` → 重命名项 → 行内 `textarea.task-list-rename-input` 自动聚焦 → React 原生 value setter + input 事件 + Enter）；删除驱动菜单「删除任务」项 → Trae 自带「确认删除」弹窗（`.dialog-` 前缀类名，无 role=dialog）→ 点其中文案恰为「删除」的按钮。安全约束：同名会话 >1 或目标不在当前侧栏视图时一律拒绝（`_rowCount(title) !== 1`），绝不滚动/切换视图去找；面板侧另有确认弹窗，双重确认。**真实删除未在用户数据上执行**（无法安全构造一次性会话——New task 不发送消息不产生侧栏条目），弹窗出现/取消已实机验证。
+- **会话分页结论**：侧栏组件 `hasMoreSessions=false`（当前视图已全量加载），收集器映射的是分组完整 children——**分页增强无需实现**；但侧栏按工作区过滤视图，收集器只反映当前视图（389→1 的波动即视图切换所致），这是「只读已挂载分组」的固有语义。
+- **测试工具链坑**：Windows Git Bash 下 `curl -d` 发中文 JSON 会因代码页把 UTF-8 载荷搞坏（症状：API 假性「未找到」），带中文的接口测试必须用 python/文件体发送，ASCII 载荷不受影响。
+- **测试**：`test/trae-models.test.js`（模型 + 会话操作的静态护栏）+ profiles.test.js 能力组合更新。运行时行为只在 Trae 实机验证过，无 Trae 环境时这些静态断言是唯一护栏。
 
 ### 3.8 macOS 侧（`install.sh` / `relaunch-with-cdp.sh` / `apply-update.sh`）
 
@@ -140,7 +143,7 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 
 1. ~~**P0 — 修 CI 发布链**~~ **已完成（2026-08-30）**：见 §2 阻塞项。Release v0.0.1 已挂三个 Setup.exe；包内内容已按 AGENTS.md 抽查（暂存包层面：daemon 0.0.1、node.exe、各 profile 串、无提示词/无嵌套 ZIP）。Setup.exe 编译产物由 CI 的 verify-win.cmd 自检步覆盖，本机无 Inno Setup 未做 innounp 抽查。
 2. ~~**P1 — Trae 模型能力**~~ **已完成（2026-08-30，feat/trae-models，待发版）**：列表读取 + 点击切换 + Auto Mode 还原全链路实机验证通过，见 §3.7。后续如需「会话级模型记忆」（每个会话独立模型）需再摸 composer 状态里的 currentMode/modeList。
-3. **P1 — Trae 会话增强**：当前只读列表来自「已挂载的侧栏分组」，长列表分页（组件有 `hasMoreSessions`/`onLoadMore`）未处理；删除/重命名等写操作需走云端 API（带 Cloud-IDE-JWT，token 可从 CDP Network 域轮询捕获，注意**绝不能落盘/进日志**）。
+3. ~~**P1 — Trae 会话增强**~~ **基本完成（2026-08-30，feat/trae-models）**：分页经实测无需实现（`hasMoreSessions=false`，当前视图全量加载，见 §3.7）；删除/重命名已走侧栏官方菜单实装（比云 API 方案更符合零侵入，完全不涉及 Cloud-IDE-JWT）。剩余收尾：真实删除的一次性会话验证（需构造可丢弃会话）。
 4. **P2 — Trae 账号能力**：登录态为加密存储 + Cloud-IDE-JWT（有失效与刷新问题），切换账号需逆向 trae.cn 账号接口，工作量大、单独排期。
 5. **P2 — Trae 主题能力**：Trae 是 VSCode fork，主题体系与 WorkBuddy 完全不同；若做，形态是「workbench 主题 + CSS 注入」，需新设计而非开关现有 theme 引擎。
 6. **P3 — macOS**：实机确认 Trae mac 包名；mac 打包脚本 WorkSwitch 化；CI 增加 mac job（现有 workflow 仅 Windows）。
