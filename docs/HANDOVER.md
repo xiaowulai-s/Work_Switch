@@ -1,6 +1,6 @@
 # WorkSwitch 交接文档
 
-> 更新时间：2026-08-30 · 对应版本：v0.0.1（已重发成功，CI 全绿）；daemon 源码版本 0.1.0（Trae 模型能力，分支 feat/trae-models）
+> 更新时间：2026-08-30 · 对应版本：v0.1.0（已发布：[run 33292865128](https://github.com/xiaowulai-s/Work_Switch/actions/runs/33292865128) 全绿，Release 挂三个 `WorkSwitch-*-Setup-0.1.0.exe`）
 > 本文档面向接手开发者：先读「项目概览」与「开发环境」，再按模块索引查细节。
 > 工作区规范（不可违背的原则、打包 Runbook、验证命令）以根目录 `AGENTS.md` 为准，本文不重复。
 
@@ -40,7 +40,7 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
   - 教训：CI 的两个坑都是「本机环境与 CI 环境默认值不同」——本机 grep 是 ugrep、本机 python 默认 UTF-8，导致本地全绿、CI 必挂。写 CI 校验/打包逻辑时先确认 runner 环境默认值。
   - 发布路径采用「删远端 tag 重打 v0.0.1」（两次），tag 必须指向包含 workflow 修复的提交，CI 才会用到新逻辑。
 
-**2026-08-30 新增（分支 feat/trae-models，未发版）：**
+**2026-08-30 新增（已随 v0.1.0 发布）：**
 
 5. **Trae 在线模型列表/切换 + 会话重命名/删除**（daemon 0.1.0）：模型 tab 对 trae 实装（Auto Mode 置顶 + 内置模型分组 + 倍率/受限标签），收集器 `__wbsTraeModels` 临时展开官方下拉收割后恢复；`__wbsTraeSessionOps` 走侧栏「更多」菜单完成重命名/删除（不触达云 API，无 token 处理）。API：`/api/trae/models`（GET）、`/api/trae/models/switch`、`/api/trae/sessions/rename`、`/api/trae/sessions/delete`（均 POST）。实机全链路验证通过。细节与坑见 §3.7。
 
@@ -142,8 +142,8 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 ## 5. 下一步开发计划（建议优先级）
 
 1. ~~**P0 — 修 CI 发布链**~~ **已完成（2026-08-30）**：见 §2 阻塞项。Release v0.0.1 已挂三个 Setup.exe；包内内容已按 AGENTS.md 抽查（暂存包层面：daemon 0.0.1、node.exe、各 profile 串、无提示词/无嵌套 ZIP）。Setup.exe 编译产物由 CI 的 verify-win.cmd 自检步覆盖，本机无 Inno Setup 未做 innounp 抽查。
-2. ~~**P1 — Trae 模型能力**~~ **已完成（2026-08-30，feat/trae-models，待发版）**：列表读取 + 点击切换 + Auto Mode 还原全链路实机验证通过，见 §3.7。后续如需「会话级模型记忆」（每个会话独立模型）需再摸 composer 状态里的 currentMode/modeList。
-3. ~~**P1 — Trae 会话增强**~~ **基本完成（2026-08-30，feat/trae-models）**：分页经实测无需实现（`hasMoreSessions=false`，当前视图全量加载，见 §3.7）；删除/重命名已走侧栏官方菜单实装（比云 API 方案更符合零侵入，完全不涉及 Cloud-IDE-JWT）。剩余收尾：真实删除的一次性会话验证（需构造可丢弃会话）。
+2. ~~**P1 — Trae 模型能力**~~ **已完成并随 v0.1.0 发布（2026-08-30）**：列表读取 + 点击切换 + Auto Mode 还原全链路实机验证通过，见 §3.7。后续如需「会话级模型记忆」（每个会话独立模型）需再摸 composer 状态里的 currentMode/modeList。
+3. ~~**P1 — Trae 会话增强**~~ **基本完成并随 v0.1.0 发布（2026-08-30）**：分页经实测无需实现（`hasMoreSessions=false`，当前视图全量加载，见 §3.7）；删除/重命名已走侧栏官方菜单实装（比云 API 方案更符合零侵入，完全不涉及 Cloud-IDE-JWT）。剩余收尾：真实删除的一次性会话验证（需构造可丢弃会话）。
 4. **P2 — Trae 账号能力**：登录态为加密存储 + Cloud-IDE-JWT（有失效与刷新问题），切换账号需逆向 trae.cn 账号接口，工作量大、单独排期。
 5. **P2 — Trae 主题能力**：Trae 是 VSCode fork，主题体系与 WorkBuddy 完全不同；若做，形态是「workbench 主题 + CSS 注入」，需新设计而非开关现有 theme 引擎。
 6. **P3 — macOS**：实机确认 Trae mac 包名；mac 打包脚本 WorkSwitch 化；CI 增加 mac job（现有 workflow 仅 Windows）。
