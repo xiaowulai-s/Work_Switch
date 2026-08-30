@@ -19,3 +19,4 @@ daemon.log
 # release build artifacts (keep release/WorkDaddy.ico)
 release/macos/
 release/windows/
+release-notes-payload.json
