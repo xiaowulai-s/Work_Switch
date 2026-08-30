@@ -40,7 +40,9 @@ test('workflow CRLF 校验使用字节统计而非 grep $\'\\r\'', () => {
   const checkStep = workflow.match(/-\s+name: 校验 CRLF[^\n]*\n[\s\S]*?(?=\n      - name: )/);
   assert.ok(checkStep, 'CRLF check step is missing from build-win.yml');
   assert.match(checkStep[0], /tr -cd '\\r' < "\$f" \| wc -c/, 'CRLF check must count CR bytes, grep cannot see them in Git Bash');
-  assert.doesNotMatch(checkStep[0], /^[ \t]*[^ \t#][^\n]*grep[^\n]*\$'\\r'/m, 'GNU grep in Git Bash strips CR before matching, so grep $\'\\r\' always fails');
+  // 注意：JS 的 ^ 在 /m 下会把 \r 也当行首（与 grep 不同），且字符类不排除 \r\n，
+  // 因此这里必须显式排除 \r\n，否则 CRLF 文件会滑进注释行造成误报。
+  assert.doesNotMatch(checkStep[0], /^[ \t]*[^ \t#\r\n][^\r\n]*grep[^\r\n]*\$'\\r'/m, 'GNU grep in Git Bash strips CR before matching, so grep $\'\\r\' always fails');
 });
 
 test('CRLF 判定规则能区分纯 CRLF、纯 LF 与混合行尾', () => {

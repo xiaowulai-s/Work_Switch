@@ -1062,3 +1062,48 @@ test('session summary counts effective sessions and models tab only exposes sani
   assert.match(inject, /height:650px/);
   assert.doesNotMatch(inject, /模型备份保存在 WorkDaddy 本地目录/);
 });
+
+test('Staging build forces Python UTF-8 mode before the embedded python blocks', () => {
+  const build = fs.readFileSync(path.join(repoRoot, 'scripts', 'build-win-zip.sh'), 'utf8');
+  const firstPythonUse = build.indexOf('"$PYTHON_BIN" -');
+  assert.ok(firstPythonUse > 0, 'expected embedded python invocations');
+  assert.match(
+    build.slice(0, firstPythonUse),
+    /export PYTHONUTF8=1/,
+    'CI Windows Python pipes stdout through the ANSI code page (cp1252); Chinese prints raise UnicodeEncodeError without UTF-8 mode'
+  );
+});
+
+test('Branding python blocks print Chinese through a cp1252 stdout like CI', () => {
+  const build = fs.readFileSync(path.join(repoRoot, 'scripts', 'build-win-zip.sh'), 'utf8');
+  const blocks = [];
+  for (const match of build.matchAll(
+    /if \[ "\$PROFILE" = "(workbuddy-ai|trae-work-cn)" \]; then[\s\S]*?<<'PY'\r?\n([\s\S]*?)\r?\nPY\r?\nfi/g
+  )) {
+    blocks.push({ profile: match[1], code: match[2] });
+  }
+  assert.equal(blocks.length, 2, 'expected the AI and Trae branding python blocks');
+  for (const { profile, code } of blocks) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `wbs-${profile}-cp1252-`));
+    try {
+      const env = { ...process.env, PYTHONIOENCODING: 'cp1252' };
+      delete env.PYTHONUTF8;
+      const result = childProcess.spawnSync('python', ['-', dir], {
+        input: code,
+        encoding: 'utf8',
+        timeout: 20000,
+        windowsHide: true,
+        env,
+      });
+      assert.ifError(result.error);
+      assert.equal(
+        result.status,
+        0,
+        `${profile} branding block failed under cp1252 stdout:\n${result.stdout}${result.stderr}`
+      );
+      assert.match(result.stdout, /品牌化替换完成/, `${profile} branding completion print missing`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});

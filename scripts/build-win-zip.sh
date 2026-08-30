@@ -22,6 +22,10 @@ if [ -z "$PYTHON_BIN" ]; then
   exit 2
 fi
 
+# CI 的 Windows Python 走管道时 stdout 默认跟随 ANSI 代码页（cp1252），
+# 嵌入 python 块的中文 print 会 UnicodeEncodeError；UTF-8 模式统一本机与 CI 行为。
+export PYTHONUTF8=1
+
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 mkdir -p release/windows
@@ -266,6 +270,9 @@ if [ "$PROFILE" = "workbuddy-ai" ]; then
 import os
 import sys
 
+# 外部显式设置的 PYTHONIOENCODING 会压过 PYTHONUTF8，运行时再兜底一次。
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 stage = sys.argv[1]
 
 def patch(path, pairs):
@@ -326,6 +333,9 @@ if [ "$PROFILE" = "trae-work-cn" ]; then
 "$PYTHON_BIN" - "$(winpath "$STAGE")" <<'PY'
 import os
 import sys
+
+# 外部显式设置的 PYTHONIOENCODING 会压过 PYTHONUTF8，运行时再兜底一次。
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 stage = sys.argv[1]
 
