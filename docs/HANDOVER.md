@@ -41,7 +41,10 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
   - 发布路径采用「删远端 tag 重打 v0.0.1」（两次），tag 必须指向包含 workflow 修复的提交，CI 才会用到新逻辑。
 
 **2026-08-30 新增（已随 v0.1.0 发布）：**
-**2026-08-30 新增（分支 feat/all-in-one，方案 C 进行中，未合 main 未发版）：**
+**2026-08-30 新增（方案 C 已完成并发布）：**
+
+- **v0.3.0（当前发布形态）**：发布物收敛为全端单包——Release 只挂 `WorkSwitch-All-Setup-x.y.z.exe`，三个分身安装包下架（CI 只构建 all；zip/release 默认循环只跑 all）。更新渠道收敛：workbuddy-cn/ai 的 UPDATE_CHANNEL 统一为 `WorkSwitch-All-`；**旧 CN 分身（0.1.0/0.2.0）会经自身旧代码的兜底正则自动升级到全端版**（安装器自带迁移，精确停旧生命周期）；**旧 AI 分身需手动安装一次**（其旧正则锁死 WorkSwitch-AI- 前缀，匹配不到新资产——发版说明里必须写明）。trae/codebuddy 维持 null 渠道。AGENTS.md 发版 Runbook 已同步（唯一交付物 + 载荷抽查含 supervisor）。
+- 本机生产：安装版 WorkSwitch All（`%LOCALAPPDATA%\Programs\WorkSwitch All`）托管全部客户端，登录自启已注册；dev 目录仅作开发。
 
 6. **All-in-One（单安装包承载全部客户端）**：
    - `scripts/supervisor.js`（新增）：常驻管理器，轮询检测各 profile 客户端运行状态，daemon/CDP 不可用时调用 win-launcher 补齐（launcher 幂等）；客户端未运行不做任何事。CodeBuddy 双版共用镜像名，仅在 CDP 端口可判别版本时管理。单实例锁（`%APPDATA%\WorkDaddy\supervisor.pid`）+ `node supervisor.js stop`。
