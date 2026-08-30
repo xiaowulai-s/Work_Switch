@@ -1,6 +1,6 @@
 # WorkSwitch 交接文档
 
-> 更新时间：2026-08-29 · 对应版本：v0.0.1（已推 GitHub tag，CI 详见「已知问题」）
+> 更新时间：2026-08-30 · 对应版本：v0.0.1（已重发成功，CI 全绿）；daemon 源码版本 0.1.0（Trae 模型能力，分支 feat/trae-models）
 > 本文档面向接手开发者：先读「项目概览」与「开发环境」，再按模块索引查细节。
 > 工作区规范（不可违背的原则、打包 Runbook、验证命令）以根目录 `AGENTS.md` 为准，本文不重复。
 
@@ -16,7 +16,7 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
 | `workbuddy-ai` | WorkBuddy AI 国际版 | workbuddy | 47833 | 9223 | 全部（签到除外） |
 | `codebuddy-cn` | CodeBuddy 国内版 | codebuddy | 47834 | 9224 | 会话只读 + 签到 |
 | `codebuddy-intl` | CodeBuddy 国际版 | codebuddy | 47835 | 9225 | 会话只读 + 签到 |
-| `trae-work-cn` | Trae Work CN（字节 TraeWork） | trae | 47836 | 9240 | **会话只读**（本次新增） |
+| `trae-work-cn` | Trae Work CN（字节 TraeWork） | trae | 47836 | 9240 | 会话只读 + **在线模型列表/切换**（模型能力见 §3.7） |
 
 内部约定（勿改，多处依赖）：API 协议头 `X-WorkDaddy-Token`；数据目录 `%APPDATA%\WorkDaddy`（非 CN profile 在其下 `profiles\<id>` 子目录）；注入占位符 `__WBS_*` 系列；`WBS_` 前缀的内部标识。
 
@@ -39,6 +39,10 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
   2. **暂存打包 python 块 cp1252 崩溃**（run 33287632416，step 6）：Windows CI 的 Python 3.12 管道 stdout 默认跟随 ANSI 代码页，品牌化块中文 print 抛 `UnicodeEncodeError`（本机 Python 默认 UTF-8 所以没复现）。已在 build-win-zip.sh `export PYTHONUTF8=1` + 两个品牌化块内 `sys.stdout.reconfigure(utf-8)` 兜底（commit 72c2228）。
   - 教训：CI 的两个坑都是「本机环境与 CI 环境默认值不同」——本机 grep 是 ugrep、本机 python 默认 UTF-8，导致本地全绿、CI 必挂。写 CI 校验/打包逻辑时先确认 runner 环境默认值。
   - 发布路径采用「删远端 tag 重打 v0.0.1」（两次），tag 必须指向包含 workflow 修复的提交，CI 才会用到新逻辑。
+
+**2026-08-30 新增（分支 feat/trae-models，未发版）：**
+
+5. **Trae 在线模型列表/切换**（daemon 0.1.0）：模型 tab 对 trae 实装（Auto Mode 置顶 + 内置模型分组 + 倍率/受限标签），渲染层收集器 `__wbsTraeModels` 临时展开官方下拉收割后恢复，daemon 新增 `/api/trae/models`（GET）与 `/api/trae/models/switch`（POST，`key` 为模型 display_name，`__auto__`=Auto Mode）。实机全链路验证通过。实现细节与坑见 §3.7。
 
 **明确未做（见 §5 开发计划）：** Trae 的模型/账号/主题能力、macOS 包、macOS Trae 包名实机确认。
 
@@ -86,7 +90,19 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
 - exe 发现顺序：PROFILE.appPath → App Paths 注册表（按 profile 分 key）→ 卸载注册表（Trae 用 `TraeWork|TRAE SOLO`，**不能匹配裸 "Trae"**，会抓到 Trae IDE）→ 常见路径 → 盘根候选 → 安装目录 PowerShell 扫描。误报由 `selectPreferredDiscoveredBinary` 按镜像名兜底过滤。
 - 已知偶发：验证后进程已自行退出时 taskkill 返回 1 → fail-closed 报错（设计如此）。重跑一次 launcher 即可。
 
-### 3.7 macOS 侧（`install.sh` / `relaunch-with-cdp.sh` / `apply-update.sh`）
+### 3.7 Trae 在线模型能力（§2 新增项 5 的实现细节）
+
+- **数据源**：模型目录服务端下发（state.vscdb 的 `AI.agent.model.model_list_map` 只是缓存，应用运行时持锁不可直写）。权威的「可选列表 + 当前选中」在 composer 顶部 `core-model-select` 下拉里：`[role="option"]` 项 + 非 option 的 `.core-model-select-auto-mode-item`（Auto Mode 入口，`active` 类=当前生效）+ `.core-model-select-model-group-label`（分组头「内置模型」）。
+- **收集器**（inject.js `__wbsTraeModels`，kind=trae，widget 守卫之前）：`list()` 与 `switchTo(key)` 都返回 `Promise<string(JSON)>`，daemon 侧 `traeModelCollectorCall` 用 `Runtime.evaluate awaitPromise:true` 取值（`r.result.value` 已剥一层）。操作方式是派发与用户一致的指针事件后立即恢复原状，无监听器/无 observer。
+- **三个必须踩对的点**（都实测踩过）：
+  1. **派发的 PointerEvent 必须带 `pointerType: 'mouse'`**——Radix 校验 pointerType，缺省 `''` 不触发选择。
+  2. **下拉刚展开时选择处理器未挂载完成**，立即点击无效；用「触发后下拉自行收起 = 选中成功」信号重试（≤3 次，每次 800ms）。固定 300ms 等待不够。
+  3. **受限模型与普通模型的渲染路径不同**：受限项的 fiber 链上有 `item`/`onItemClick` prop，普通项没有——模型显示名必须从 `.core-model-select-model-item-name` DOM 子元素读取，fiber item 仅作补充元数据。
+- **UI**（`buildTraeModelsPane`，buildModelsPane 按 `WBS_PROFILE_KIND === 'trae'` 分流）：Auto Mode 置顶行 + 分组头 + 行内倍率/无权限胶囊；restricted 行灰显不可点；事件委托 + Enter/Space 键盘可达；刷新按钮 id 为 `wbs-trae-model-refresh`（不得撞 WorkBuddy 的 `wbs-model-refresh`——update-layout.test.js 有静态断言）。
+- **API**：`GET /api/trae/models`、`POST /api/trae/models/switch {key}`（`__auto__`=Auto Mode）；仅 `PROFILE.kind === 'trae'`，鉴权走 handleApi 全局门。面板 `api()` 对 `!ok` 抛错，切换失败会重载列表并显示 tip。
+- **测试**：`test/trae-models.test.js`（收集器/路由/UI 分流的静态护栏）+ profiles.test.js 能力组合更新。运行时行为只在 Trae 实机验证过，无 Trae 环境时这些静态断言是唯一护栏。
+
+### 3.8 macOS 侧（`install.sh` / `relaunch-with-cdp.sh` / `apply-update.sh`）
 
 - 有 trae-work-cn 的 case 分支（端口/数据目录/CDP 9240），但 **macOS 的 Trae 包名 `TraeWork CN.app` 是预留值，实机未验证**——接手后在 mac 上确认后修正 relaunch-with-cdp.sh 的 APP_BIN 与 profiles.js 的 appPath。
 - macOS 打包（build-mac-dmg.sh）与 WorkSwitch 改名未同步（脚本内仍是 WorkDaddy 命名），CI 也不出 mac 包；做 mac 发布前需统一。
@@ -123,7 +139,7 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 ## 5. 下一步开发计划（建议优先级）
 
 1. ~~**P0 — 修 CI 发布链**~~ **已完成（2026-08-30）**：见 §2 阻塞项。Release v0.0.1 已挂三个 Setup.exe；包内内容已按 AGENTS.md 抽查（暂存包层面：daemon 0.0.1、node.exe、各 profile 串、无提示词/无嵌套 ZIP）。Setup.exe 编译产物由 CI 的 verify-win.cmd 自检步覆盖，本机无 Inno Setup 未做 innounp 抽查。
-2. **P1 — Trae 模型能力**：模型目录是服务端下发（state.vscdb 的 `AI.agent.model.model_list_map` 只是缓存，切换键 `AI.agent.model.session_selected_model` 也在 vscdb）。可行路线：渲染层 fiber/服务读取模型列表 + CDP 触发切换；**不支持直写 vscdb**（应用运行时持锁）。先在 fiber 里确认模型选择器的数据结构再动手，落点仿照 §3.4 收集器模式。
+2. ~~**P1 — Trae 模型能力**~~ **已完成（2026-08-30，feat/trae-models，待发版）**：列表读取 + 点击切换 + Auto Mode 还原全链路实机验证通过，见 §3.7。后续如需「会话级模型记忆」（每个会话独立模型）需再摸 composer 状态里的 currentMode/modeList。
 3. **P1 — Trae 会话增强**：当前只读列表来自「已挂载的侧栏分组」，长列表分页（组件有 `hasMoreSessions`/`onLoadMore`）未处理；删除/重命名等写操作需走云端 API（带 Cloud-IDE-JWT，token 可从 CDP Network 域轮询捕获，注意**绝不能落盘/进日志**）。
 4. **P2 — Trae 账号能力**：登录态为加密存储 + Cloud-IDE-JWT（有失效与刷新问题），切换账号需逆向 trae.cn 账号接口，工作量大、单独排期。
 5. **P2 — Trae 主题能力**：Trae 是 VSCode fork，主题体系与 WorkBuddy 完全不同；若做，形态是「workbench 主题 + CSS 注入」，需新设计而非开关现有 theme 引擎。
