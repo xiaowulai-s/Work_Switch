@@ -348,6 +348,168 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }
     };
   }
+  // ===== Trae Work 模型收集器（kind=trae 专属）=====
+  // 背景：Trae 的模型目录由服务端下发（state.vscdb 的 model_list_map 只是缓存，
+  // 应用运行时持锁不可直写）；「可选列表 + 当前选中」的权威数据在 composer 顶部
+  // core-model-select 下拉的 DOM/fiber 里。此收集器用与用户一致的鼠标指针事件
+  // 临时展开下拉、收割 option（fiber 上的 item 携带完整模型元数据）后立即恢复
+  // 原状，供 daemon 经 CDP 调用（GET /api/trae/models、POST /api/trae/models/switch）。
+  // 必须安装在 __wbsWidget 守卫之前：无监听器/无 observer、纯瞬时 DOM 操作，
+  // 重注入时随脚本整体覆盖更新。返回 Promise<string(JSON)>，daemon 侧用
+  // Runtime.evaluate awaitPromise 取值。
+  if ('__WBS_PROFILE_KIND__' === 'trae') {
+    window.__wbsTraeModels = {
+      _fiberKey: function (el) {
+        var keys = Object.keys(el);
+        for (var i = 0; i < keys.length; i++) {
+          if (keys[i].indexOf('__reactFiber$') === 0 || keys[i].indexOf('__reactInternalInstance$') === 0) return keys[i];
+        }
+        return null;
+      },
+      // Radix 校验 pointerType，缺省值不会触发选择；必须显式 mouse
+      _fire: function (el) {
+        var r = el.getBoundingClientRect();
+        var base = { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerId: 1, isPrimary: true, button: 0, pointerType: 'mouse' };
+        el.dispatchEvent(new PointerEvent('pointerdown', base));
+        el.dispatchEvent(new PointerEvent('pointerup', base));
+        el.dispatchEvent(new MouseEvent('click', base));
+      },
+      _wait: function (ms) { return new Promise(function (res) { setTimeout(res, ms); }); },
+      _options: function () {
+        var portal = document.querySelector('.core-model-select-portal');
+        return portal ? portal.querySelectorAll('[role="option"]') : [];
+      },
+      _triggerText: function () {
+        var t = document.querySelector('.core-model-select-trigger');
+        return t ? String(t.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      },
+      _openDropdown: async function () {
+        if (this._options().length) return true;
+        var trig = document.querySelector('.core-model-select-trigger');
+        if (!trig) return false;
+        this._fire(trig);
+        for (var i = 0; i < 20; i++) {
+          await this._wait(150);
+          if (this._options().length) return true;
+        }
+        return false;
+      },
+      _closeDropdown: async function () {
+        if (!this._options().length) return;
+        var trig = document.querySelector('.core-model-select-trigger');
+        if (trig) this._fire(trig);
+        for (var i = 0; i < 10; i++) {
+          await this._wait(120);
+          if (!this._options().length) return;
+        }
+        // 兜底：Escape 经冒泡让 Radix 的 dismissable layer 关闭
+        try {
+          (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+        } catch (_) {}
+        await this._wait(200);
+      },
+      _itemOf: function (o) {
+        var fk = this._fiberKey(o);
+        if (!fk) return null;
+        var cur = o[fk];
+        for (var up = 0; up < 20 && cur; up++, cur = cur.return) {
+          var pr = cur.memoizedProps;
+          if (pr && pr.item && typeof pr.item === 'object' && pr.item.name) return pr.item;
+        }
+        return null;
+      },
+      // 模型显示名：受限模型与普通模型的 Radix 渲染路径不同，普通 option 的 fiber
+      // 链上没有 item prop，名字必须从 DOM 子元素读取
+      _keyOf: function (o) {
+        var nameEl = o.querySelector('.core-model-select-model-item-name');
+        if (nameEl && String(nameEl.textContent || '').trim()) return String(nameEl.textContent).trim();
+        var item = this._itemOf(o);
+        return String((item && (item.display_name || item.name)) || '').trim();
+      },
+      _autoInfo: function () {
+        var portal = document.querySelector('.core-model-select-portal');
+        var el = portal ? portal.querySelector('.core-model-select-auto-mode-item') : null;
+        return el ? { active: /(^|\s)active(\s|$)/.test(String(el.className || '')) } : null;
+      },
+      _rows: function () {
+        var self = this;
+        var portal = document.querySelector('.core-model-select-portal');
+        if (!portal) return [];
+        var rows = [];
+        var opts = portal.querySelectorAll('[role="option"]');
+        for (var i = 0; i < opts.length; i++) {
+          var o = opts[i];
+          var item = self._itemOf(o);
+          var trailEl = o.querySelector('.core-model-select-model-item-trail');
+          var groupEl = o.closest ? o.closest('.core-model-select-model-group') : null;
+          var labelEl = groupEl ? groupEl.querySelector('.core-model-select-model-group-label') : null;
+          rows.push({
+            key: self._keyOf(o),
+            rawName: String((item && item.name) || '').trim(),
+            label: String(o.textContent || '').replace(/\s+/g, ' ').trim(),
+            ratio: trailEl ? String(trailEl.textContent || '').replace(/\s+/g, ' ').trim() : '',
+            restricted: /access-restricted/.test(String(o.className || '')),
+            multimodal: !!(item && item.multimodal),
+            group: labelEl ? String(labelEl.textContent || '').replace(/\s+/g, ' ').trim() : '',
+          });
+        }
+        return rows;
+      },
+      list: async function () {
+        try {
+          var opened = await this._openDropdown();
+          if (!opened) return JSON.stringify({ ok: false, error: '模型下拉未展开（页面可能未就绪）' });
+          var models = this._rows();
+          var auto = this._autoInfo();
+          var current = this._triggerText();
+          await this._closeDropdown();
+          return JSON.stringify({ ok: true, current: current, isAuto: !!(auto && auto.active), autoAvailable: !!auto, models: models });
+        } catch (e) {
+          return JSON.stringify({ ok: false, error: String((e && e.message) || e) });
+        }
+      },
+      switchTo: async function (key) {
+        try {
+          var k = String(key == null ? '' : key).trim();
+          if (!k) return JSON.stringify({ ok: false, error: '缺少模型标识' });
+          var wantAuto = k === '__auto__' || /^auto mode$/i.test(k);
+          var opened = await this._openDropdown();
+          if (!opened) return JSON.stringify({ ok: false, error: '模型下拉未展开' });
+          var portal = document.querySelector('.core-model-select-portal');
+          var el = null;
+          if (wantAuto) {
+            el = portal.querySelector('.core-model-select-auto-mode-item');
+          } else {
+            var opts = portal.querySelectorAll('[role="option"]');
+            for (var i = 0; i < opts.length && !el; i++) {
+              var o = opts[i];
+              if (/access-restricted/.test(String(o.className || ''))) continue;
+              if (this._keyOf(o) === k || String(o.textContent || '').replace(/\s+/g, ' ').trim() === k) el = o;
+            }
+          }
+          if (!el) {
+            await this._closeDropdown();
+            return JSON.stringify({ ok: false, error: '未找到模型：' + k });
+          }
+          // Radix 的选择处理器在下拉展开后仍需数百毫秒才挂载完成，首次点击可能无效；
+          // 用「下拉自行收起 = 选中成功」作为信号重试（最多 3 次），成功即停
+          var closedAfterFire = false;
+          for (var attempt = 0; attempt < 3; attempt++) {
+            this._fire(el);
+            await this._wait(800);
+            closedAfterFire = !this._options().length;
+            if (closedAfterFire) break;
+          }
+          var current = this._triggerText();
+          await this._closeDropdown();
+          var verified = wantAuto ? closedAfterFire : (closedAfterFire && current !== '' && (current === k || k.indexOf(current) === 0 || current.indexOf(k) === 0));
+          return JSON.stringify({ ok: verified, current: current, error: verified ? null : '切换已触发但未确认生效（当前: ' + current + '）' });
+        } catch (e) {
+          return JSON.stringify({ ok: false, error: String((e && e.message) || e) });
+        }
+      },
+    };
+  }
   // ===== 顶部红色角标已移除（用户要求）；仅保留 console 标记 =====
   try { console.log('[WBS] inject.js 已执行于', location.href, 'body=', !!document.body); } catch (_) {}
   if (window.__wbsWidget) return; // 理论上 cleanup 已清除，保留为兜底
@@ -3700,6 +3862,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     function buildModelsPane() {
       if (!modelsPane) return;
       modelsPane.dataset.built = '1';
+      if (WBS_PROFILE_KIND === 'trae') {
+        buildTraeModelsPane();
+        return;
+      }
       modelsPane.innerHTML =
         '<div class="wbs-pcard wbs-model-card">' +
         '<div class="wbs-model-tabs" role="tablist">' +
@@ -3725,6 +3891,97 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         '<div class="wbs-modal-mask" id="wbs-model-edit" style="display:none"><div class="wbs-modal wbs-model-edit-modal"><div class="wbs-modal-title">编辑模型</div><div class="wbs-model-edit-form"><label class="wbs-model-edit-field"><span>自定义名称</span><input id="wbs-model-edit-name" type="text" autocomplete="off" placeholder="例如我的 DeepSeek"></label><label class="wbs-model-edit-field"><span>模型名</span><input id="wbs-model-edit-id" type="text" autocomplete="off" placeholder="例如 deepseek-v4-flash"></label><label class="wbs-model-edit-field"><span>URL</span><input id="wbs-model-edit-url" type="url" autocomplete="off"></label><label class="wbs-model-edit-field"><span>API Key</span><span class="wbs-model-secret-wrap"><input id="wbs-model-edit-key" type="password" autocomplete="off"><button class="wbs-model-eye" id="wbs-model-edit-eye" type="button" title="显示或隐藏 API Key" aria-label="显示或隐藏 API Key"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></span></label></div><div class="wbs-modal-actions"><button class="wbs-modal-btn" type="button" id="wbs-model-edit-cancel">取消</button><button class="wbs-modal-btn wbs-modal-ok" type="button" id="wbs-model-edit-save">保存</button></div></div></div>';
       wireModelsPane();
       loadModels();
+    }
+    // ===== Trae 在线模型选择器（kind=trae 专属）=====
+    // 列表/当前选中来自渲染层收集器（daemon 经 CDP 临时展开官方下拉收割后恢复），
+    // 切换通过收集器派发与用户一致的鼠标事件；仅暴露只读列表 + 切换，不管理模型配置。
+    function buildTraeModelsPane() {
+      if (!modelsPane) return;
+      modelsPane.innerHTML =
+        '<div class="wbs-pcard wbs-model-card">' +
+        '<div class="wbs-model-toolbar">' +
+        '<span class="wbs-model-count" id="wbs-trae-current"></span>' +
+        '<span class="wbs-model-toolbar-spacer"></span>' +
+        '<button class="wbs-sess-refresh" type="button" id="wbs-trae-model-refresh" title="刷新模型列表" aria-label="刷新模型列表">' + AUTO_COPY_SVG + '</button>' +
+        '</div>' +
+        '<div class="wbs-model-tip" id="wbs-trae-model-tip" style="display:none"></div>' +
+        '<div class="wbs-model-list" id="wbs-trae-model-list"><div class="wbs-empty">加载中…</div></div>' +
+        '</div>';
+      var refreshBtn = modelsPane.querySelector('#wbs-trae-model-refresh');
+      if (refreshBtn) refreshBtn.addEventListener('click', function () { loadTraeModels(); });
+      var list = modelsPane.querySelector('#wbs-trae-model-list');
+      if (list) {
+        // 事件委托：行点击 = 切换；Enter/Space 等价点击（键盘可达）
+        list.addEventListener('click', function (ev) {
+          var row = ev.target && ev.target.closest ? ev.target.closest('.wbs-trae-model-row') : null;
+          if (row) switchTraeModel(row);
+        });
+        list.addEventListener('keydown', function (ev) {
+          if (ev.key !== 'Enter' && ev.key !== ' ') return;
+          var row = ev.target && ev.target.closest ? ev.target.closest('.wbs-trae-model-row') : null;
+          if (row) { ev.preventDefault(); switchTraeModel(row); }
+        });
+      }
+      loadTraeModels();
+    }
+    function traeModelRowActive(data, key) {
+      if (key === '__auto__') return !!data.isAuto;
+      return !data.isAuto && !!data.current && data.current === key;
+    }
+    function loadTraeModels() {
+      if (!modelsPane) return;
+      var list = modelsPane.querySelector('#wbs-trae-model-list');
+      var currentEl = modelsPane.querySelector('#wbs-trae-current');
+      if (list) list.innerHTML = '<div class="wbs-empty">加载中…</div>';
+      api('/api/trae/models').then(function (data) {
+        if (currentEl) currentEl.textContent = '当前：' + (data.isAuto ? 'Auto Mode' : (data.current || '未知'));
+        if (!list) return;
+        var rows = data.models || [];
+        if (!rows.length) { list.innerHTML = '<div class="wbs-empty">' + esc(data.error || '未读取到模型列表，请刷新重试') + '</div>'; return; }
+        var html = '';
+        if (data.autoAvailable) {
+          html += '<div class="wbs-trae-model-row' + (traeModelRowActive(data, '__auto__') ? ' active' : '') + '" data-trae-key="__auto__" role="button" tabindex="0">' +
+            '<div class="wbs-trae-model-name">Auto Mode</div>' +
+            '<span class="wbs-model-tag">自动路由</span>' +
+            '</div>';
+        }
+        var lastGroup = null;
+        for (var i = 0; i < rows.length; i++) {
+          var m = rows[i];
+          var group = String(m.group || '');
+          if (group && group !== lastGroup) {
+            html += '<div class="wbs-trae-model-group">' + esc(group) + '</div>';
+            lastGroup = group;
+          }
+          html += '<div class="wbs-trae-model-row' + (traeModelRowActive(data, m.key) ? ' active' : '') + (m.restricted ? ' restricted' : '') + '" data-trae-key="' + escAttr(m.key) + '"' + (m.restricted ? ' aria-disabled="true"' : ' role="button" tabindex="0"') + '>' +
+            '<div class="wbs-trae-model-name" title="' + escAttr(m.label || m.key) + '">' + esc(m.key || m.label || '(未命名)') + '</div>' +
+            (m.ratio ? '<span class="wbs-model-tag">' + esc(m.ratio) + '</span>' : '') +
+            (m.restricted ? '<span class="wbs-model-tag">无权限</span>' : '') +
+            '</div>';
+        }
+        list.innerHTML = html;
+      }).catch(function (e) {
+        if (currentEl) currentEl.textContent = '当前：未知';
+        if (list) list.innerHTML = '<div class="wbs-empty">模型加载失败：' + esc(e.message || e) + '</div>';
+      });
+    }
+    function switchTraeModel(row) {
+      var key = row ? String(row.getAttribute('data-trae-key') || '') : '';
+      if (!key || row.getAttribute('aria-disabled')) return;
+      var list = modelsPane.querySelector('#wbs-trae-model-list');
+      var tip = modelsPane.querySelector('#wbs-trae-model-tip');
+      if (tip) { tip.style.display = 'none'; }
+      if (list) list.innerHTML = '<div class="wbs-empty">切换中…</div>';
+      api('/api/trae/models/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: key }) })
+        .then(function () { loadTraeModels(); })
+        .catch(function (e) {
+          loadTraeModels();
+          var tip2 = modelsPane.querySelector('#wbs-trae-model-tip');
+          if (tip2) {
+            tip2.textContent = '切换失败：' + (e.message || e);
+            tip2.style.display = '';
+          }
+        });
     }
     // 前端脱敏：与后端 maskApiKey 一致。cell 列表展示短脱敏串，title 同样脱敏；编辑弹窗用明文原值
     function maskModelKey(apiKey) {
@@ -8350,6 +8607,15 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     '.wbs-model-list::-webkit-scrollbar{width:6px}',
     '.wbs-model-list::-webkit-scrollbar-thumb{background:transparent;border-radius:3px}',
     '.wbs-model-list:hover::-webkit-scrollbar-thumb{background:rgba(128,128,128,.45)}',
+    // Trae 在线模型选择器（kind=trae 模型页）：单选列表行，active 跟随当前选中；restricted 仅展示不可点
+    '.wbs-trae-model-group{padding:8px 8px 2px;font-size:11px;font-weight:600;color:var(--wb-icon-tertiary,#999)}',
+    '.wbs-trae-model-row{display:flex;align-items:center;gap:8px;box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid transparent;border-radius:10px;background:transparent;cursor:pointer;transition:background .15s,border-color .15s}',
+    '.wbs-trae-model-row:hover{background:var(--wb-bg-hover,#f5f5f5)}',
+    '.wbs-trae-model-row:focus-visible{outline:1px solid var(--wb-accent-blue,#4f86ff);outline-offset:1px}',
+    '.wbs-trae-model-row.active{background:color-mix(in srgb,var(--wb-accent-blue,#4f86ff) 10%,transparent);border-color:var(--wb-accent-blue,#4f86ff)}',
+    '.wbs-trae-model-row.restricted{cursor:default;opacity:.55}',
+    '.wbs-trae-model-row.restricted:hover{background:transparent}',
+    '.wbs-trae-model-name{min-width:0;flex:1;font-size:13px;font-weight:600;color:var(--wb-color-text-primary,#1f1f1f);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.wbs-model-row{display:flex;align-items:flex-start;box-sizing:border-box;width:100%;gap:10px;padding:10px 8px;border:0;border-radius:10px;background:transparent;transition:background .15s}',
     '.wbs-model-row:hover{background:var(--wb-bg-hover,#f5f5f5)}',
     '.wbs-model-main{min-width:0;flex:1}',

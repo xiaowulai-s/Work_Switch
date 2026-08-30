@@ -218,8 +218,8 @@ const DATA_DIR = defaultDataDir();
 //        映射为会话行；注入脚本新增 __WBS_PROFILE_KIND__ 维度。
 // 0.0.1：WorkSwitch 首发：面板/安装/更新全链路品牌切换为 WorkSwitch（WorkSwitch / WorkSwitch AI /
 //        WorkSwitch Trae），更新仓库指向 xiaowulai-s/Work_Switch；包含 Trae Work CN 会话支持。
-const DAEMON_VERSION = '0.0.1';
-const DAEMON_BUILD_ID = 'release-0.0.1-20260829-workswitch';
+const DAEMON_VERSION = '0.1.0';
+const DAEMON_BUILD_ID = 'release-0.1.0-20260830-workswitch';
 const HOST = '127.0.0.1';
 const IS_WIN = process.platform === 'win32'; // Windows 移植：平台分支开关（macOS 行为保持不变）
 // Windows 安装目录（install.ps1 铺、launcher 用、更新替换目标），对应 macOS 的 /Applications/WorkDaddy.app
@@ -2649,6 +2649,35 @@ function filterTraeSessionRows(rows, sql, params) {
   }
   filtered.sort((a, b) => rowTime(b) - rowTime(a));
   return filtered;
+}
+// Trae 模型收集器（渲染层 __wbsTraeModels）调用：收集器临时展开下拉收割后恢复，
+// 返回 Promise(JSON 字符串)，因此必须 awaitPromise 让 Runtime.evaluate 等待完成。
+function traeModelCollectorCall(expr) {
+  return cdpSend('Runtime.evaluate', {
+    expression: expr,
+    returnByValue: true,
+    awaitPromise: true,
+  }).then((r) => {
+    const v = r && r.result ? r.result.value : null;
+    if (typeof v !== 'string') {
+      const detail = r && r.exceptionDetails
+        ? ' exception=' + String((r.exceptionDetails.exception || {}).description || r.exceptionDetails.text).slice(0, 200)
+        : ' raw=' + JSON.stringify(r).slice(0, 160);
+      throw new Error('模型收集器不可用:' + detail);
+    }
+    let parsed;
+    try { parsed = JSON.parse(v); } catch (_) { throw new Error('模型收集器返回无法解析'); }
+    if (!parsed || !parsed.ok) throw new Error((parsed && parsed.error) || '模型收集器报错');
+    return parsed;
+  });
+}
+function traeModelList() {
+  return traeModelCollectorCall('(window.__wbsTraeModels ? window.__wbsTraeModels.list() : null)')
+    .catch((e) => ({ ok: false, error: e.message }));
+}
+function traeModelSwitch(key) {
+  const expr = '(window.__wbsTraeModels ? window.__wbsTraeModels.switchTo(' + JSON.stringify(String(key == null ? '' : key)) + ') : null)';
+  return traeModelCollectorCall(expr).catch((e) => ({ ok: false, error: e.message }));
 }
 async function sqliteQuery(sql, params = []) {
   const expectedParams = parameterCount(sql);
@@ -5853,6 +5882,20 @@ function handleApi(req, res) {
 
   // 模型管理：列表返回供模型页 UI 展示的摘要（apiKey 明文，供 cell/编辑弹窗直接展示；
   // 仅本机 loopback 服务，不写日志、不上传）。备份文件保留完整配置，参考 docs 下工作流说明。
+  // Trae 在线模型列表：GET /api/trae/models（渲染层收集器临时展开下拉收割后恢复）
+  if (req.method === 'GET' && p === '/api/trae/models') {
+    if (PROFILE.kind !== 'trae') return json(res, 404, { ok: false, error: '仅 Trae 客户端支持在线模型' });
+    return traeModelList().then((v) => json(res, v.ok ? 200 : 502, v));
+  }
+  // Trae 模型切换：POST /api/trae/models/switch { key }（key=模型 display_name；__auto__=Auto Mode）
+  if (req.method === 'POST' && p === '/api/trae/models/switch') {
+    if (PROFILE.kind !== 'trae') return json(res, 404, { ok: false, error: '仅 Trae 客户端支持在线模型' });
+    return readBody(req).then((body) => {
+      const key = String((body && body.key) || '').trim();
+      if (!key) return json(res, 400, { ok: false, error: '缺少模型标识' });
+      return traeModelSwitch(key).then((v) => json(res, v.ok ? 200 : 502, v));
+    });
+  }
   if (req.method === 'GET' && p === '/api/models') {
     let official = [];
     let officialError = null;

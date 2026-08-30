@@ -22,9 +22,9 @@ test('Trae Work CN profile：kind=trae、能力组合、Windows 实机 exe 路�
   assert.equal(trae.appName, 'WorkSwitch Trae');
   assert.equal(trae.authFile, null);
   assert.equal(trae.apiHost, 'https://www.trae.cn');
-  // 会话只读（渲染层收集器）；账号/模型/主题待后续适配
+  // 会话只读 + 在线模型列表/切换（渲染层收集器）；账号/主题待后续适配
   assert.deepEqual(trae.capabilities, {
-    accounts: false, sessions: true, models: false, stashPrompt: false, theme: false, checkin: false,
+    accounts: false, sessions: true, models: true, stashPrompt: false, theme: false, checkin: false,
   });
   if (process.platform === 'win32') {
     assert.equal(trae.appPath.endsWith(path.join('TRAE SOLO CN', 'TRAE SOLO CN.exe')), true);

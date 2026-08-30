@@ -87,11 +87,11 @@ const PROFILES = {
       : '/Applications/TraeWork CN.app',
     dataRoot: path.join(appSupport, 'TRAE SOLO CN'),
     authFile: null,
-    // 会话走渲染层收集器，不经此库；指向明文的 VSCode globalStorage 仅为满足 daemon 的非空路径校验
+    // 会话只读与模型列表/切换走渲染层收集器，不经本地库；指向明文的 VSCode globalStorage 仅为满足 daemon 的非空路径校验
     sessionDb: path.join(appSupport, 'TRAE SOLO CN', 'User', 'globalStorage', 'state.vscdb'),
     modelsFile: null,
     apiHost: 'https://www.trae.cn',
-    capabilities: { accounts: false, sessions: true, models: false, stashPrompt: false, theme: false, checkin: false },
+    capabilities: { accounts: false, sessions: true, models: true, stashPrompt: false, theme: false, checkin: false },
     targetHints: ['traework cn', 'trae solo cn'],
   },
 };
