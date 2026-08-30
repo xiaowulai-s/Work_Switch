@@ -80,15 +80,7 @@ jobs:
         run: |
           $version = (Select-String -Path scripts\daemon.js -Pattern "const DAEMON_VERSION = '([^']+)'" ).Matches[0].Groups[1].Value
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy RemoteSigned `
-            -File .\scripts\build-win-installer.ps1 -IsccPath $iscc -Profile workbuddy-cn -Version ${{ steps.ver.outputs.version }}
-          if ($LASTEXITCODE -ne 0) { throw "WorkSwitch Setup build failed with exit code $LASTEXITCODE" }
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy RemoteSigned `
-            -File .\scripts\build-win-installer.ps1 -IsccPath $iscc -Profile workbuddy-ai -Version ${{ steps.ver.outputs.version }}
-          if ($LASTEXITCODE -ne 0) { throw "WorkSwitch AI Setup build failed with exit code $LASTEXITCODE" }
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy RemoteSigned `
-            -File .\scripts\build-win-installer.ps1 -IsccPath $iscc -Profile trae-work-cn -Version ${{ steps.ver.outputs.version }}
-          if ($LASTEXITCODE -ne 0) { throw "WorkSwitch Trae Setup build failed with exit code $LASTEXITCODE" }
+          # v0.3.0 起发布物收敛为全端单包（WorkSwitch-All-Setup-*），分身安装包下架
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy RemoteSigned `
             -File .\scripts\build-win-installer.ps1 -IsccPath $iscc -Profile all -Version ${{ steps.ver.outputs.version }}
           if ($LASTEXITCODE -ne 0) { throw "WorkSwitch All Setup build failed with exit code $LASTEXITCODE" }
@@ -118,9 +110,6 @@ jobs:
         with:
           name: workdaddy-win64
           path: |
-            release/windows/WorkSwitch-Setup-*.exe
-            release/windows/WorkSwitch-AI-Setup-*.exe
-            release/windows/WorkSwitch-Trae-Setup-*.exe
             release/windows/WorkSwitch-All-Setup-*.exe
 
       # ---- 只有打 tag 时才顺手挂到 GitHub Release ----
@@ -129,9 +118,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/windows/WorkSwitch-Setup-*.exe
-            release/windows/WorkSwitch-AI-Setup-*.exe
-            release/windows/WorkSwitch-Trae-Setup-*.exe
             release/windows/WorkSwitch-All-Setup-*.exe
             release/*.dmg
           generate_release_notes: true

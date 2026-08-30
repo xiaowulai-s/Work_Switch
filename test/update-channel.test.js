@@ -15,8 +15,13 @@ const daemonSource = fs.readFileSync(path.join(scriptsDir, 'daemon.js'), 'utf8')
 const launcherSource = fs.readFileSync(path.join(scriptsDir, 'win-launcher.js'), 'utf8');
 
 test('自动更新渠道按 profile 声明，无渠道 profile 禁用更新检查与下载/安装', () => {
-  assert.match(daemonSource, /const UPDATE_CHANNEL = PROFILE\.id === 'workbuddy-ai' \? 'WorkSwitch-AI-'/);
-  assert.match(daemonSource, /: PROFILE\.id === 'workbuddy-cn' \? 'WorkSwitch-'/);
+  // v0.3.0 起发布物收敛为全端单包：CN/AI 通道都解析 WorkSwitch-All-Setup-*；
+  // 旧 CN 分身经自身旧代码的兜底正则可匹配 All 资产升级；旧 AI 分身需手动安装一次。
+  assert.match(daemonSource, /const UPDATE_CHANNEL = PROFILE\.id === 'workbuddy-ai' \|\| PROFILE\.id === 'workbuddy-cn' \? 'WorkSwitch-All-'/);
+  assert.match(daemonSource, /profileSetup = \/\^WorkSwitch-All-Setup-/);
+  assert.match(daemonSource, /profileAsset = \/\^WorkSwitch-All-/);
+  assert.doesNotMatch(daemonSource, /\^WorkSwitch-Setup-\d/);
+  assert.doesNotMatch(daemonSource, /WorkSwitch-AI-Setup-/);
   assert.match(daemonSource, /const UPDATE_CHANNEL = [\s\S]*?: null;/);
   // checkUpdate 短路：无渠道不请求 Releases API
   assert.match(daemonSource, /function checkUpdate\(force\) \{[\s\S]{0,220}?if \(!UPDATE_CHANNEL\) \{/);

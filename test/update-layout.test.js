@@ -346,12 +346,13 @@ test('release scripts package the WorkSwitch profiles', () => {
   const win = fs.readFileSync(path.join(repoRoot, 'scripts', 'build-win-zip.sh'), 'utf8');
   const mac = fs.readFileSync(path.join(repoRoot, 'scripts', 'build-mac-dmg.sh'), 'utf8');
   const installer = read('install-win.ps1');
+  // v0.3.0 起 Windows 发布物收敛为全端单包（for profile in all），分身安装包下架
+  assert.match(win, /for profile in all; do/);
   for (const script of [win, mac]) {
-    assert.match(script, /for profile in workbuddy-cn workbuddy-ai/);
     assert.doesNotMatch(script, /codebuddy-cn|codebuddy-intl/);
   }
-  assert.match(win, /WorkSwitch AI\.lnk|PACKAGE_NAME="WorkSwitch AI"/);
-  assert.match(win, /OUT="release\/windows\/WorkSwitch/);
+  assert.match(win, /PACKAGE_NAME="WorkSwitch-All"/);
+  assert.match(win, /OUT="release\/windows\/WorkSwitch-All-/);
   assert.match(mac, /PACKAGE_APP_NAME="WorkDaddy AI"/);
   assert.match(mac, /Contents\/Resources\/scripts\/daemon\.js/);
   assert.match(win, /BUILD_VERSION="\$VERSION"/);
@@ -549,7 +550,7 @@ test('Windows release packages bundle a pinned Node runtime and build a user-lev
   assert.match(iss, /install-win\.ps1/);
   assert.match(workflow, /(?:Install Inno Setup|安装 Inno Setup)/);
   assert.match(workflow, /build-win-installer\.ps1/);
-  assert.match(workflow, /release\/windows\/WorkSwitch-Setup-\*\.exe/);
+  assert.match(workflow, /release\/windows\/WorkSwitch-All-Setup-\*\.exe/);
   assert.match(launcher, /runtime\\node\\node\.exe/);
 });
 

@@ -125,24 +125,23 @@ Use this exact flow for a Windows release. The two client packages are built fro
    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-win-release.ps1 -Version 1.1.2
    ```
 
-   `build-win-release.ps1` must build `workbuddy-cn`, `workbuddy-ai`, and `trae-work-cn`. `build-win-zip.sh` creates only an internal staging ZIP; `build-win-installer.ps1` rewrites the staged daemon version and build id to the requested release version before compiling Setup.exe. Do not hand-copy scripts into an old installer directory.
+   `build-win-release.ps1` builds the unified all-in-one package only (`-Profile all`, which carries every supported client and the supervisor). `build-win-zip.sh` creates only an internal staging ZIP; `build-win-installer.ps1` rewrites the staged daemon version and build id to the requested release version before compiling Setup.exe. Do not hand-copy scripts into an old installer directory. The legacy per-profile installers (`WorkSwitch-Setup-*`, `WorkSwitch-AI-Setup-*`, `WorkSwitch-Trae-Setup-*`) are retired as of v0.3.0 and must not be rebuilt for releases.
 
-3. Deliver only these files:
+3. Deliver only this file:
 
    ```text
-   release/windows/WorkDaddy-Setup-1.1.2.exe
-   release/windows/WorkDaddy-AI-Setup-1.1.2.exe
-   release/windows/WorkDaddy-Trae-Setup-1.1.2.exe
+   release/windows/WorkSwitch-All-Setup-1.1.2.exe
    ```
 
-   Remove the generated `WorkDaddy-1.1.2-win64.zip`, `WorkDaddy-AI-1.1.2-win64.zip`, `WorkDaddy-Trae-1.1.2-win64.zip`, and `release/.cache` before handoff or publication. The ZIPs are staging inputs, not Windows release artifacts. Confirm that `安装失败自主解决提示词.txt` is absent from all Setup.exe payloads.
+   Remove the generated `WorkSwitch-All-1.1.2-win64.zip` and `release/.cache` before handoff or publication. The ZIP is a staging input, not a Windows release artifact. Confirm that `安装失败自主解决提示词.txt` is absent from the Setup.exe payload.
 
-4. Inspect the actual Setup.exe payloads, not just their filenames. Run `innounp -t` on all files, list or extract them, and verify all of the following for each package:
+4. Inspect the actual Setup.exe payload, not just its filename. Run `innounp -t`, list or extract it, and verify all of the following:
 
    - `scripts/runtime/node/node.exe` exists.
    - `scripts/daemon.js` reports the requested version, here `1.1.2`.
+   - `scripts/supervisor.js` and `scripts/supervisor-hidden.vbs` are present (all-in-one supervisor).
    - `scripts/win-launcher.js`, `scripts/watchdog.js`, and the required PowerShell scripts are present.
-   - CN uses `workbuddy-cn`, `47832`, `9222` as its defaults; AI uses `workbuddy-ai`, `47833`, `9223`; Trae Work CN uses `trae-work-cn`, `47836`, `9240` and targets the client executable `TRAE SOLO CN.exe`.
+   - The package still contains all per-profile capability gates (`scripts/profiles.js` lists `workbuddy-cn`, `workbuddy-ai`, `codebuddy-cn`, `codebuddy-intl`, `trae-work-cn`); the supervisor picks the profile at runtime.
    - The package contains no `安装失败自主解决提示词.txt` and no temporary ZIP.
 
 5. Run release checks from the same repository:

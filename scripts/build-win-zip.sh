@@ -44,7 +44,7 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 PROFILE="${WORKDADDY_BUILD_PROFILE:-}"
 if [ -z "$PROFILE" ]; then
-  for profile in workbuddy-cn workbuddy-ai trae-work-cn all; do
+  for profile in all; do
     WORKDADDY_BUILD_PROFILE="$profile" bash "$0"
   done
   exit 0

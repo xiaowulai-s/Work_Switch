@@ -138,7 +138,7 @@ try {
 
   New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
   $packages = @()
-  foreach ($profile in @('workbuddy-cn', 'workbuddy-ai', 'trae-work-cn', 'all')) {
+  foreach ($profile in @('all')) {
     Invoke-WindowsZipBuild -Bash $bash -Profile $profile -ReleaseVersion $Version -CachedPython $PythonPath
     $packages += Invoke-WindowsInstallerBuild -Profile $profile -ReleaseVersion $Version -Compiler $iscc
   }

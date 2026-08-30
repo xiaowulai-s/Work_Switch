@@ -19,7 +19,7 @@ test('Windows release script interactively builds all profiles for one version',
   assert.deepEqual([...scriptBytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'Windows PowerShell 5.1 needs a UTF-8 BOM for Chinese prompts');
   assert.match(source, /Read-Host\s+"[^"]*版本号/);
   assert.match(source, /\$Version -notmatch '\^\\d\+\\\.\\d\+\\\.\\d\+\$'/);
-  assert.match(source, /foreach \(\$profile in @\('workbuddy-cn', 'workbuddy-ai', 'trae-work-cn'\)\)/);
+  assert.match(source, /foreach \(\$profile in @\('all'\)\)/); // v0.3.0 起只发全端包
   assert.match(source, /build-win-zip\.sh/);
   assert.match(source, /build-win-installer\.ps1/);
   assert.match(source, /-IsccPath \$Compiler \| Out-Host/);
