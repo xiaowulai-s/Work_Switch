@@ -24,6 +24,8 @@ try { . (Join-Path $PSScriptRoot 'windows-process-boundary.ps1') } catch {
   exit 5
 }
 $ErrorActionPreference = 'Continue'
+# 输出行工具（全端分支在其原始定义之前使用，必须先定义）
+
 if ([string]::IsNullOrWhiteSpace($Profile) -or $Profile -eq '__WBS_DEFAULT_PROFILE__') { $Profile = 'workbuddy-cn' }
 if ($Profile -ne 'workbuddy-ai' -and $Profile -ne 'trae-work-cn' -and $Profile -ne 'all') { $Profile = 'workbuddy-cn' }
 $env:WBSWITCH_PROFILE = $Profile
