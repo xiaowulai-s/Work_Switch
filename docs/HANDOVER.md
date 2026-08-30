@@ -47,7 +47,10 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
    - `scripts/supervisor.js`（新增）：常驻管理器，轮询检测各 profile 客户端运行状态，daemon/CDP 不可用时调用 win-launcher 补齐（launcher 幂等）；客户端未运行不做任何事。CodeBuddy 双版共用镜像名，仅在 CDP 端口可判别版本时管理。单实例锁（`%APPDATA%\WorkDaddy\supervisor.pid`）+ `node supervisor.js stop`。
    - **多 profile 进程身份修复（关键地基）**：同目录多 profile 的 (node, 脚本) 进程身份完全相同，watchdog 会把别的 profile 的 watchdog 当成自己的（pid 文件互写、daemon 起不来，实机复现）。修复：watchdog/daemon 启动命令行携带 `--profile=<id>`（daemon.js/watchdog.js 支持 argv 覆盖 env），windows-process-boundary 的过滤器/断言新增 `expectedProfileId` 严格尾参匹配。升级后旧 daemon 由 launcher 按版本强制重启自然带上新参数。
    - 打包链 all 模式：`WORKDADDY_BUILD_PROFILE=all` → `WorkSwitch-All-Setup-x.y.z.exe`（独立目录/独立 AppId，与旧分身共存）；install-win.ps1 all 分支做迁移（精确停旧分身生命周期）+ 注册 HKCU Run 自启 + 启动管理器；uninstall/prepare/verify 同步支持。
-   - 实机验证：杀全部 Trae 生命周期后 supervisor 一个轮询周期重建（客户端零扰动）；WorkBuddy 检测+拉起验证通过；all 模式暂存包载荷抽查通过。**未完成**：Setup.exe 编译的 CI 验证与真机安装冒烟、v0.2.0 发版。
+   - 实机验证：杀全部 Trae 生命周期后 supervisor 一个轮询周期重建（客户端零扰动）；WorkBuddy 检测+拉起验证通过；all 模式暂存包载荷抽查通过。
+   - **v0.2.0 已发布**：首次 CI 失败（默认打包循环缺 all 的 zip）修复后重发，[run 33297702555](https://github.com/xiaowulai-s/Work_Switch/actions/runs/33297702555) 全绿，Release 挂 4 个 `*-Setup-0.2.0.exe`（三分身 + All）。
+   - **真机安装冒烟通过**：`WorkSwitch-All-Setup-0.2.0.exe /VERYSILENT` 安装 → install-win.ps1 all 分支注册自启并启动管理器（内置 node）→ 正常方式启动 WorkBuddy/Trae → 管理器自动以 CDP 重启并注入 → 两端面板与功能 API 全部可用。注意 `/SILENT` 会跳过 iss 的 postinstall（skipifsilent），静默安装后需手动执行一次 install-win.ps1 -Profile all。
+   - **launcher 关闭 flake 修复**：WorkBuddy 的 GUI 子进程不处理 WM_CLOSE，优雅轮 taskkill 失败原先立即 fail-closed（客户端死在半路）；现改为记日志继续，由既有的两轮强杀收尾（身份逐个复验，安全属性不变）。
    - 交接提示：本机当前 supervisor 正在运行（node supervisor.js，root 数据目录有 supervisor.pid）；Trae 由其托管。
 
 
