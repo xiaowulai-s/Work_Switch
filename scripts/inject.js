@@ -510,6 +510,131 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       },
     };
   }
+  // ===== Trae Work 会话操作收集器（kind=trae 专属）=====
+  // 重命名/删除走侧栏行「更多」菜单（.task-list-menu）的官方入口，与用户操作一致，
+  // 不触达云端 API（避免引入 Cloud-IDE-JWT 的捕获与保管）。删除的最终确认由
+  // Trae 自己的「确认删除」弹窗承担，收集器只负责点菜单项与弹窗按钮。
+  // 注意：侧栏只渲染当前视图（当前工作区）的任务，目标会话不在视图内时必须报错
+  // 而不是滚动/切换视图去找；同名会话多于一律拒绝，防止误操作。
+  if ('__WBS_PROFILE_KIND__' === 'trae') {
+    window.__wbsTraeSessionOps = {
+      _wait: function (ms) { return new Promise(function (res) { setTimeout(res, ms); }); },
+      _fire: function (el) {
+        var r = el.getBoundingClientRect();
+        var o = { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0 };
+        el.dispatchEvent(new PointerEvent('pointerdown', o));
+        el.dispatchEvent(new PointerEvent('pointerup', o));
+        el.dispatchEvent(new MouseEvent('click', o));
+      },
+      // 行内叶子元素精确匹配标题，向上找 .taskItem 行
+      _findRow: function (title) {
+        var leaves = document.querySelectorAll('.taskItem div, .taskItem span');
+        var match = null;
+        for (var i = 0; i < leaves.length; i++) {
+          if (!leaves[i].firstElementChild && String(leaves[i].textContent || '').trim() === title) { match = leaves[i]; break; }
+        }
+        if (!match) return null;
+        var row = match;
+        for (var up = 0; up < 6 && row; up++) {
+          if (/(^|\s)taskItem(\s|$)/.test(String(row.className || ''))) break;
+          row = row.parentElement;
+        }
+        return row;
+      },
+      _openMenu: async function (row) {
+        var btn = null;
+        var btns = row.querySelectorAll('button');
+        for (var i = btns.length - 1; i >= 0; i--) {
+          if (/taskMoreB/.test(String(btns[i].className || ''))) { btn = btns[i]; break; }
+        }
+        if (!btn) return null;
+        for (var t = 0; t < 3; t++) {
+          this._fire(btn);
+          await this._wait(900);
+          var menu = document.querySelector('.task-list-menu');
+          if (menu && menu.getClientRects().length) return menu;
+        }
+        return null;
+      },
+      _menuItem: function (menu, pattern) {
+        var items = menu.querySelectorAll('.task-list-menu-item');
+        for (var i = 0; i < items.length; i++) {
+          if (pattern.test(String(items[i].textContent || ''))) return items[i];
+        }
+        return null;
+      },
+      _dismissMenu: function () {
+        try {
+          var target = document.activeElement || document.body;
+          target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+        } catch (_) {}
+      },
+      _rowCount: function (title) {
+        var leaves = document.querySelectorAll('.taskItem div, .taskItem span');
+        var n = 0;
+        for (var i = 0; i < leaves.length; i++) {
+          if (!leaves[i].firstElementChild && String(leaves[i].textContent || '').trim() === title) n++;
+        }
+        return n;
+      },
+      rename: async function (title, newTitle) {
+        try {
+          title = String(title == null ? '' : title).trim();
+          newTitle = String(newTitle == null ? '' : newTitle).trim();
+          if (!title || !newTitle) return JSON.stringify({ ok: false, error: '缺少会话标题或新名称' });
+          if (this._rowCount(title) !== 1) return JSON.stringify({ ok: false, error: title === newTitle ? '新名称与原名称相同' : '当前侧栏视图中该标题的会话数为 ' + this._rowCount(title) + '（0=不在当前视图，>1=同名歧义），已拒绝操作' });
+          var row = this._findRow(title);
+          var menu = await this._openMenu(row);
+          if (!menu) return JSON.stringify({ ok: false, error: '更多菜单未打开' });
+          var item = this._menuItem(menu, /^重命名/);
+          if (!item) { this._dismissMenu(); return JSON.stringify({ ok: false, error: '菜单里没有重命名项' }); }
+          this._fire(item);
+          await this._wait(700);
+          var ta = document.querySelector('textarea.task-list-rename-input');
+          if (!ta) { this._dismissMenu(); return JSON.stringify({ ok: false, error: '重命名输入框未出现' }); }
+          var setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+          setter.call(ta, newTitle);
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+          await this._wait(150);
+          ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+          await this._wait(900);
+          var done = this._rowCount(newTitle) === 1 && this._rowCount(title) === 0;
+          return JSON.stringify({ ok: done, error: done ? null : '重命名已触发但未确认生效' });
+        } catch (e) {
+          return JSON.stringify({ ok: false, error: String((e && e.message) || e) });
+        }
+      },
+      remove: async function (title) {
+        try {
+          title = String(title == null ? '' : title).trim();
+          if (!title) return JSON.stringify({ ok: false, error: '缺少会话标题' });
+          if (this._rowCount(title) !== 1) return JSON.stringify({ ok: false, error: '当前侧栏视图中该标题的会话数为 ' + this._rowCount(title) + '（0=不在当前视图，>1=同名歧义），已拒绝操作' });
+          var row = this._findRow(title);
+          var menu = await this._openMenu(row);
+          if (!menu) return JSON.stringify({ ok: false, error: '更多菜单未打开' });
+          var item = this._menuItem(menu, /^删除/);
+          if (!item) { this._dismissMenu(); return JSON.stringify({ ok: false, error: '菜单里没有删除项' }); }
+          this._fire(item);
+          await this._wait(900);
+          // Trae 自己的「确认删除」弹窗（.dialog- 开头的类名），删除按钮文案为「删除」
+          var dialog = document.querySelector('[class*="dialog-"]');
+          if (!dialog || !dialog.getClientRects().length) return JSON.stringify({ ok: false, error: '确认删除弹窗未出现' });
+          var btns = dialog.querySelectorAll('button');
+          var delBtn = null;
+          for (var i = 0; i < btns.length; i++) {
+            if (String(btns[i].textContent || '').trim() === '删除') { delBtn = btns[i]; break; }
+          }
+          if (!delBtn) return JSON.stringify({ ok: false, error: '确认弹窗里没有删除按钮' });
+          this._fire(delBtn);
+          await this._wait(1200);
+          var gone = this._rowCount(title) === 0;
+          return JSON.stringify({ ok: gone, error: gone ? null : '删除已触发但未确认生效' });
+        } catch (e) {
+          return JSON.stringify({ ok: false, error: String((e && e.message) || e) });
+        }
+      },
+    };
+  }
   // ===== 顶部红色角标已移除（用户要求）；仅保留 console 标记 =====
   try { console.log('[WBS] inject.js 已执行于', location.href, 'body=', !!document.body); } catch (_) {}
   if (window.__wbsWidget) return; // 理论上 cleanup 已清除，保留为兜底
@@ -3489,6 +3614,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
             '<span class="wbs-sess-main"><span class="wbs-sess-title">' + esc(title) + '</span>' +
             '<span class="wbs-sess-meta">' + esc(fmtHumanTime(s.last_activity_at || s.updated_at || s.created_at)) + '</span></span>' +
             (batch ? '' : autoCopyButton('session', s.id, s.user_id, marked, inherited)) +
+            (WBS_PROFILE_KIND === 'trae' && !batch ? traeSessActions(title) : '') +
             '</div>';
         });
         if (taskMore > 0) html += '<button class="wbs-sess-more" type="button" data-ws="__TASKS__">展开 ' + Math.min(taskMore, SESS_WS_STEP) + ' 条（剩余 ' + taskMore + '）</button>';
@@ -3520,6 +3646,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
             '<span class="wbs-sess-main"><span class="wbs-sess-title">' + esc(title) + '</span>' +
             '<span class="wbs-sess-meta">' + esc(fmtHumanTime(s.last_activity_at || s.updated_at || s.created_at)) + '</span></span>' +
             (batch ? '' : autoCopyButton('session', s.id, s.user_id, marked, inherited)) +
+            (WBS_PROFILE_KIND === 'trae' && !batch ? traeSessActions(title) : '') +
             '</div>';
         });
         if (more > 0) html += '<button class="wbs-sess-more" type="button" data-ws="' + escAttr(groupKey) + '">展开 ' + Math.min(more, SESS_WS_STEP) + ' 条（剩余 ' + more + '）</button>';
@@ -3547,6 +3674,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     function bindSessEvents(listEl) {
       listEl.onclick = function (e) {
         var t = e.target;
+        // Trae 会话行悬停操作（kind=trae）：重命名 / 删除
+        if (WBS_PROFILE_KIND === 'trae') {
+          var renBtn = t.closest ? t.closest('[data-trae-rename]') : null;
+          if (renBtn) { e.preventDefault(); e.stopPropagation(); openTraeRenameModal(renBtn.getAttribute('data-trae-rename')); return; }
+          var delBtn = t.closest ? t.closest('[data-trae-delete]') : null;
+          if (delBtn) { e.preventDefault(); e.stopPropagation(); openTraeDeleteModal(delBtn.getAttribute('data-trae-delete')); return; }
+        }
         var autoBtn = t.closest ? t.closest('.wbs-sess-auto') : null;
         if (autoBtn) {
           e.preventDefault();
@@ -3847,6 +3981,64 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         }).catch(function (e) {
           toast('删除失败: ' + (e.message || e), true, root);
         });
+      };
+    }
+    // ===== Trae 会话操作（kind=trae）：行内悬停按钮 + 复用会话弹窗 =====
+    // 重命名/删除经 daemon → 渲染层收集器驱动 Trae 侧栏官方菜单完成；删除需面板
+    // 弹窗与 Trae「确认删除」弹窗双重确认。
+    function traeSessActions(title) {
+      return '<span class="wbs-trae-sess-actions">' +
+        '<button class="wbs-model-icon-action" type="button" data-trae-rename="' + escAttr(title) + '" title="重命名" aria-label="重命名">' + MODEL_EDIT_SVG + '</button>' +
+        '<button class="wbs-model-icon-action wbs-trae-sess-del" type="button" data-trae-delete="' + escAttr(title) + '" title="删除" aria-label="删除">' + TRASH_SVG + '</button>' +
+        '</span>';
+    }
+    function openTraeRenameModal(title) {
+      var titleEl = sessionsPane.querySelector('#wbs-sess-modal-title');
+      var body = sessionsPane.querySelector('#wbs-sess-modal-body');
+      var okBtn = sessionsPane.querySelector('#wbs-sess-modal-ok');
+      titleEl.textContent = '重命名会话';
+      body.innerHTML = '<input class="wbs-sess-select wbs-trae-rename-input" id="wbs-trae-rename-input" type="text" autocomplete="off" value="' + escAttr(title) + '" title="新的会话名称">';
+      showSessModal(true);
+      var input = body.querySelector('#wbs-trae-rename-input');
+      if (input) { input.focus(); input.select(); }
+      okBtn.onclick = function () {
+        var newName = input ? String(input.value || '').trim() : '';
+        if (!newName) { toast('请输入新名称', true, root); return; }
+        if (newName === title) { showSessModal(false); return; }
+        okBtn.disabled = true;
+        api('/api/trae/sessions/rename', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title: title, newTitle: newName }),
+        }).then(function () {
+          toast('已重命名', false, root);
+          showSessModal(false);
+          loadSessions();
+        }).catch(function (e) {
+          toast('重命名失败: ' + (e.message || e), true, root);
+        }).then(function () { okBtn.disabled = false; });
+      };
+    }
+    function openTraeDeleteModal(title) {
+      var titleEl = sessionsPane.querySelector('#wbs-sess-modal-title');
+      var body = sessionsPane.querySelector('#wbs-sess-modal-body');
+      var okBtn = sessionsPane.querySelector('#wbs-sess-modal-ok');
+      titleEl.textContent = '删除会话？';
+      body.innerHTML = '<div class="wbs-modal-warn">将删除「' + esc(title) + '」。删除后会话及其聊天记录将从本地或云端移除且无法恢复，确认后还会弹出 Trae 的确认框。</div>';
+      showSessModal(true);
+      okBtn.onclick = function () {
+        okBtn.disabled = true;
+        api('/api/trae/sessions/delete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title: title }),
+        }).then(function () {
+          toast('已删除会话', false, root);
+          showSessModal(false);
+          loadSessions();
+        }).catch(function (e) {
+          toast('删除失败: ' + (e.message || e), true, root);
+        }).then(function () { okBtn.disabled = false; });
       };
     }
     function selectedSessIds() {
@@ -8616,6 +8808,12 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     '.wbs-trae-model-row.restricted{cursor:default;opacity:.55}',
     '.wbs-trae-model-row.restricted:hover{background:transparent}',
     '.wbs-trae-model-name{min-width:0;flex:1;font-size:13px;font-weight:600;color:var(--wb-color-text-primary,#1f1f1f);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    // Trae 会话行悬停操作（kind=trae）：按钮常驻占位，hover 行时由透明变不透明
+    '.wbs-trae-sess-actions{display:flex;align-items:center;gap:2px;flex:0 0 auto;margin-left:auto;opacity:0;transition:opacity .15s}',
+    '.wbs-sess-row:hover .wbs-trae-sess-actions,.wbs-sess-row:focus-within .wbs-trae-sess-actions{opacity:1}',
+    '.wbs-trae-sess-actions .wbs-model-icon-action{width:26px;height:26px;background:transparent}',
+    '.wbs-trae-sess-del:hover{color:#e5484d}',
+    '.wbs-trae-rename-input{width:100%}',
     '.wbs-model-row{display:flex;align-items:flex-start;box-sizing:border-box;width:100%;gap:10px;padding:10px 8px;border:0;border-radius:10px;background:transparent;transition:background .15s}',
     '.wbs-model-row:hover{background:var(--wb-bg-hover,#f5f5f5)}',
     '.wbs-model-main{min-width:0;flex:1}',

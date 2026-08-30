@@ -57,3 +57,28 @@ test('Trae 模型页走专属 API 且不复用 WorkBuddy 配置管理的 DOM id'
   assert.doesNotMatch(injectSource, /id="wbs-model-refresh"/);
   assert.match(injectSource, /id="wbs-trae-model-refresh"/);
 });
+
+test('Trae 会话操作收集器：官方菜单入口、同名歧义拒绝、删除走确认弹窗', () => {
+  assert.match(injectSource, /window\.__wbsTraeSessionOps = \{/);
+  const ops = injectSource.slice(injectSource.indexOf('window.__wbsTraeSessionOps = {'), injectSource.indexOf('if (window.__wbsWidget) return;'));
+  // 走官方菜单（.task-list-menu），不触达云端 API
+  assert.match(ops, /task-list-menu/);
+  assert.match(ops, /taskMoreB/);
+  assert.match(ops, /task-list-rename-input/);
+  // 删除必须先等到 Trae 自己的确认弹窗并点其中的「删除」按钮
+  assert.match(ops, /确认删除弹窗未出现/);
+  assert.match(ops, /'删除'/);
+  // 同名会话多于一律拒绝（防误操作），不在当前视图也不得滚动去找
+  assert.match(ops, /_rowCount\(title\) !== 1/);
+  // 标题经 JSON.stringify 注入表达式，禁止拼接可执行代码
+  assert.match(daemonSource, /__wbsTraeSessionOps\.rename\(' \+ JSON\.stringify/);
+  assert.match(daemonSource, /__wbsTraeSessionOps\.remove\(' \+ JSON\.stringify\(/);
+  const renameRoute = daemonSource.indexOf("p === '/api/trae/sessions/rename'");
+  const deleteRoute = daemonSource.indexOf("p === '/api/trae/sessions/delete'");
+  assert.ok(renameRoute > 0 && daemonSource.indexOf("PROFILE.kind !== 'trae'", renameRoute) > renameRoute);
+  assert.ok(deleteRoute > 0 && daemonSource.indexOf("PROFILE.kind !== 'trae'", deleteRoute) > deleteRoute);
+  // 面板行内悬停操作 + 双重确认（面板弹窗 + Trae 弹窗）
+  assert.match(injectSource, /data-trae-rename=/);
+  assert.match(injectSource, /data-trae-delete=/);
+  assert.match(injectSource, /确认后还会弹出 Trae 的确认框/);
+});

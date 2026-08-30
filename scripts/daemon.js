@@ -5896,6 +5896,29 @@ function handleApi(req, res) {
       return traeModelSwitch(key).then((v) => json(res, v.ok ? 200 : 502, v));
     });
   }
+  // Trae 会话重命名：POST /api/trae/sessions/rename { title, newTitle }
+  // 走侧栏「更多」菜单的官方重命名入口（行内输入框 + Enter），不触达云端 API
+  if (req.method === 'POST' && p === '/api/trae/sessions/rename') {
+    if (PROFILE.kind !== 'trae') return json(res, 404, { ok: false, error: '仅 Trae 客户端支持会话操作' });
+    return readBody(req).then((body) => {
+      const title = String((body && body.title) || '').trim();
+      const newTitle = String((body && body.newTitle) || '').trim();
+      if (!title || !newTitle) return json(res, 400, { ok: false, error: '缺少会话标题或新名称' });
+      const expr = '(window.__wbsTraeSessionOps ? window.__wbsTraeSessionOps.rename(' + JSON.stringify(title) + ',' + JSON.stringify(newTitle) + ') : null)';
+      return traeModelCollectorCall(expr).then((v) => json(res, v.ok ? 200 : 502, v)).catch((e) => json(res, 502, { ok: false, error: e.message }));
+    });
+  }
+  // Trae 会话删除：POST /api/trae/sessions/delete { title }
+  // 收集器只负责打开 Trae 自己的「确认删除」弹窗并点「删除」；面板侧另有确认弹窗，双重确认
+  if (req.method === 'POST' && p === '/api/trae/sessions/delete') {
+    if (PROFILE.kind !== 'trae') return json(res, 404, { ok: false, error: '仅 Trae 客户端支持会话操作' });
+    return readBody(req).then((body) => {
+      const title = String((body && body.title) || '').trim();
+      if (!title) return json(res, 400, { ok: false, error: '缺少会话标题' });
+      const expr = '(window.__wbsTraeSessionOps ? window.__wbsTraeSessionOps.remove(' + JSON.stringify(title) + ') : null)';
+      return traeModelCollectorCall(expr).then((v) => json(res, v.ok ? 200 : 502, v)).catch((e) => json(res, 502, { ok: false, error: e.message }));
+    });
+  }
   if (req.method === 'GET' && p === '/api/models') {
     let official = [];
     let officialError = null;
