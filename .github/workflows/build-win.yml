@@ -30,8 +30,12 @@ jobs:
         shell: bash
         run: |
           for f in scripts/*.cmd; do
-            if ! grep -q $'\r' "$f"; then
-              echo "::error::$f 不是 CRLF，无法在 Windows 使用，请转换"
+            # Git Bash 的 GNU grep 读文本文件会剥离 CR，grep $'\r' 对 CRLF 文件恒不命中，
+            # 必须用字节统计：每个换行必须是 CRLF（允许末行无换行），出现纯 LF 行即不合格。
+            cr=$(tr -cd '\r' < "$f" | wc -c)
+            lf=$(tr -cd '\n' < "$f" | wc -c)
+            if [ "$lf" -gt "$cr" ]; then
+              echo "::error::$f 存在 $((lf - cr)) 个纯 LF 行，cmd.exe 解析括号块会失败，请转换为 CRLF"
               exit 1
             fi
           done
