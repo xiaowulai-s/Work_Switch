@@ -220,8 +220,8 @@ const DATA_DIR = defaultDataDir();
 //        映射为会话行；注入脚本新增 __WBS_PROFILE_KIND__ 维度。
 // 0.0.1：WorkSwitch 首发：面板/安装/更新全链路品牌切换为 WorkSwitch（WorkSwitch / WorkSwitch AI /
 //        WorkSwitch Trae），更新仓库指向 xiaowulai-s/Work_Switch；包含 Trae Work CN 会话支持。
-const DAEMON_VERSION = '0.3.0';
-const DAEMON_BUILD_ID = 'release-0.3.0-20260830-workswitch';
+const DAEMON_VERSION = '0.3.1';
+const DAEMON_BUILD_ID = 'release-0.3.1-20260830-workswitch';
 const HOST = '127.0.0.1';
 const IS_WIN = process.platform === 'win32'; // Windows 移植：平台分支开关（macOS 行为保持不变）
 // Windows 安装目录（install.ps1 铺、launcher 用、更新替换目标），对应 macOS 的 /Applications/WorkDaddy.app
@@ -405,8 +405,9 @@ const UPDATE_API = `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`
 // v0.3.0 起发布物收敛为全端单包（WorkSwitch-All-Setup-*）：CN/AI 通道都解析它，
 // 旧 CN 分身（0.1.0/0.2.0）经自身代码的兜底正则也能匹配该资产并升级到全端版；
 // 旧 AI 分身无法匹配（其正则锁死 WorkSwitch-AI- 前缀），需手动安装全端版一次。
-// codebuddy/trae 维持 null（trae 待全端安装器稳定后再开渠道）。
-const UPDATE_CHANNEL = PROFILE.id === 'workbuddy-ai' || PROFILE.id === 'workbuddy-cn' ? 'WorkSwitch-All-'
+// trae-work-cn 自 v0.3.1 起由全端安装器托管（apply-update 会先停管理器再替换，
+// 更新完成或回滚后重启管理器），纳入渠道；codebuddy 双版仍为手动/无安装器，维持 null。
+const UPDATE_CHANNEL = PROFILE.id === 'workbuddy-ai' || PROFILE.id === 'workbuddy-cn' || PROFILE.id === 'trae-work-cn' ? 'WorkSwitch-All-'
   : null;
 const UPDATE_CHECK_INTERVAL = 6 * 3600 * 1000; // 每 6 小时检查一次（GitHub 未认证限流 60 次/h）
 const UPDATE_REQ_TIMEOUT = 10000; // 网络超时，超时静默失败不阻塞面板

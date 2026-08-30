@@ -57,6 +57,40 @@ function Stop-ApplyTranscript {
   }
 }
 
+# 方案 C：全端安装的管理器会与更新替换竞态（daemon 一停就被它拉起 launcher）。
+# 更新前先精确停止管理器，更新完成（或回滚）后再重启，由它按需重建生命周期。
+$supervisorVbs = Join-Path $AppDir 'scripts\supervisor-hidden.vbs'
+$supervisorPidFile = Join-Path $dataRoot 'supervisor.pid'
+function Stop-SupervisorIfRunning {
+  try {
+    if (Test-Path -LiteralPath $supervisorPidFile) {
+      $supPid = 0
+      try { $supPid = [int](Get-Content -LiteralPath $supervisorPidFile -Raw).Trim() } catch {}
+      if ($supPid -gt 0) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $supPid" -ErrorAction SilentlyContinue
+        if ($proc -and $proc.Name -eq 'node.exe' -and $proc.CommandLine -match 'supervisor\.js') {
+          Stop-Process -Id $supPid -Force
+          Write-ApplyLog "已停止 supervisor pid=$supPid"
+        }
+      }
+      Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
+    }
+  } catch {
+    Write-ApplyLog ("停止 supervisor 失败（继续更新）: " + $_.Exception.Message)
+  }
+}
+function Start-SupervisorAfterUpdate {
+  if (Test-Path -LiteralPath $supervisorVbs) {
+    try {
+      Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList ('//nologo "' + $supervisorVbs + '"') -WorkingDirectory (Split-Path $supervisorVbs)
+      Write-ApplyLog '已重启 supervisor（将按需重建各 profile 生命周期）'
+    } catch {
+      Write-ApplyLog ('supervisor 重启失败（可手动运行 supervisor-hidden.vbs）: ' + $_.Exception.Message)
+    }
+  }
+}
+Stop-SupervisorIfRunning
+
 function Stop-WatchdogAndPort {
   Stop-VerifiedWorkDaddyLifecycle `
     -DataDir $DataDir `
@@ -197,12 +231,14 @@ try {
   if (Test-Path -LiteralPath $oldDir) {
     Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue
   }
+  Start-SupervisorAfterUpdate
   Write-ApplyLog "done attempt=$AttemptId"
   Stop-ApplyTranscript
   exit 0
 } catch {
   Write-ApplyLog "FAILED attempt=$AttemptId error=$($_.Exception.Message)"
   if ($backupMade) { Rollback-App -OldDir $oldDir -TargetDir $AppDir }
+  Start-SupervisorAfterUpdate
   Stop-ApplyTranscript
   exit 1
 } finally {

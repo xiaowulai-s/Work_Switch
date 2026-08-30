@@ -24,7 +24,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 校验 CRLF（cmd 必须 CRLF，否则 cmd.exe 解析括号块会失败）
         shell: bash
