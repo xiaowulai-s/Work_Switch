@@ -34,7 +34,11 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
 
 **当前阻塞项：**
 
-- **CI run [33250380974](https://github.com/xiaowulai-s/Work_Switch/actions/runs/33250380974)（tag v0.0.1）失败**：job "Build Setup.exe + verify"，2 errors + 1 warning，报错为 `Process completed with exit code 1`。因本机访问 GitHub API 被限流（共享代理出口 IP），失败注解未能抓到。**接手后第一件事**：打开该 run 页面看失败步骤日志，修复后删除远端 tag 重新推（`git push origin :refs/tags/v0.0.1` + 重打）或直接升 v0.0.2。可疑点：① 新增的 CRLF 校验步骤对 cmd 文件换行的要求；② build-win-zip.sh 在 CI Linux 环境跑 python3 的兼容性；③ 打包脚本对 WorkSwitch 品牌串的断言（本地测试已覆盖，但 CI 环境差异待排除）。
+- ~~CI 发布链失败~~ **已解决（2026-08-30）**：v0.0.1 已重发成功，[run 33289225389](https://github.com/xiaowulai-s/Work_Switch/actions/runs/33289225389) 全绿，Release 挂上三个 `WorkSwitch-*-Setup-0.0.1.exe`（无 ZIP、无提示词文件）。原失败有两个叠加根因，均已修复并有回归测试：
+  1. **workflow CRLF 校验恒假**（run 33250380974，step 3）：Git Bash 的 GNU grep 读文本文件会剥离 CR，`grep -q $'\r'` 对 CRLF 文件恒不命中。已改字节统计（`tr -cd '\r'` 计数，出现纯 LF 行才报错），并规范 `launcher.cmd`/`install-win.cmd`/`Install-WorkDaddy.cmd` 为全 CRLF（commit b1e1d3b）。
+  2. **暂存打包 python 块 cp1252 崩溃**（run 33287632416，step 6）：Windows CI 的 Python 3.12 管道 stdout 默认跟随 ANSI 代码页，品牌化块中文 print 抛 `UnicodeEncodeError`（本机 Python 默认 UTF-8 所以没复现）。已在 build-win-zip.sh `export PYTHONUTF8=1` + 两个品牌化块内 `sys.stdout.reconfigure(utf-8)` 兜底（commit 72c2228）。
+  - 教训：CI 的两个坑都是「本机环境与 CI 环境默认值不同」——本机 grep 是 ugrep、本机 python 默认 UTF-8，导致本地全绿、CI 必挂。写 CI 校验/打包逻辑时先确认 runner 环境默认值。
+  - 发布路径采用「删远端 tag 重打 v0.0.1」（两次），tag 必须指向包含 workflow 修复的提交，CI 才会用到新逻辑。
 
 **明确未做（见 §5 开发计划）：** Trae 的模型/账号/主题能力、macOS 包、macOS Trae 包名实机确认。
 
@@ -118,7 +122,7 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 
 ## 5. 下一步开发计划（建议优先级）
 
-1. **P0 — 修 CI 发布链**：排查 run 33250380974 的 2 个 error（见 §2），修复后重发 v0.0.1（删 tag 重推）或 v0.0.2；确认 Release 挂上三个 `WorkSwitch-*-Setup-0.0.1.exe`，并按 AGENTS.md 校验包内无 `安装失败自主解决提示词.txt`、无临时 ZIP。
+1. ~~**P0 — 修 CI 发布链**~~ **已完成（2026-08-30）**：见 §2 阻塞项。Release v0.0.1 已挂三个 Setup.exe；包内内容已按 AGENTS.md 抽查（暂存包层面：daemon 0.0.1、node.exe、各 profile 串、无提示词/无嵌套 ZIP）。Setup.exe 编译产物由 CI 的 verify-win.cmd 自检步覆盖，本机无 Inno Setup 未做 innounp 抽查。
 2. **P1 — Trae 模型能力**：模型目录是服务端下发（state.vscdb 的 `AI.agent.model.model_list_map` 只是缓存，切换键 `AI.agent.model.session_selected_model` 也在 vscdb）。可行路线：渲染层 fiber/服务读取模型列表 + CDP 触发切换；**不支持直写 vscdb**（应用运行时持锁）。先在 fiber 里确认模型选择器的数据结构再动手，落点仿照 §3.4 收集器模式。
 3. **P1 — Trae 会话增强**：当前只读列表来自「已挂载的侧栏分组」，长列表分页（组件有 `hasMoreSessions`/`onLoadMore`）未处理；删除/重命名等写操作需走云端 API（带 Cloud-IDE-JWT，token 可从 CDP Network 域轮询捕获，注意**绝不能落盘/进日志**）。
 4. **P2 — Trae 账号能力**：登录态为加密存储 + Cloud-IDE-JWT（有失效与刷新问题），切换账号需逆向 trae.cn 账号接口，工作量大、单独排期。
