@@ -27,6 +27,25 @@ try {
   $dataRoot = Join-Path $env:APPDATA 'WorkDaddy'
   # 方案 C：全端模式重装时，停掉本安装目录下全部 profile 的生命周期（标准权限下失败即中止）
   if ($Profile -eq 'all') {
+    # 先精确停止运行中的管理器：管理器会把刚停掉的 daemon 立刻用 launcher 拉起，
+    # 若不先停它，本方案的逐 profile 停止会和它赛跑，最后必在身份校验上 fail-closed。
+    # 校验 supervisor.pid → 精确 node + 本安装目录 supervisor.js；无法确认则 fail-closed。
+    $supervisorPidFile = Join-Path $dataRoot 'supervisor.pid'
+    if (Test-Path -LiteralPath $supervisorPidFile) {
+      $supPid = 0
+      try { $supPid = [int](Get-Content -LiteralPath $supervisorPidFile -Raw).Trim() } catch {}
+      if ($supPid -gt 0) {
+        $supProc = Get-CimInstance Win32_Process -Filter "ProcessId = $supPid" -ErrorAction Stop
+        if ($null -eq $supProc -or $supProc.Name -ine 'node.exe') { throw 'supervisor.pid 未指向可确认的 node 管理器进程' }
+        $expectedSupervisor = Join-Path $AppDir 'scripts\supervisor.js'
+        if ($supProc.CommandLine -match ([regex]::Escape($expectedSupervisor))) {
+          Stop-Process -Id $supPid -Force
+        } else {
+          throw 'supervisor.pid 指向的进程与本安装目录的 supervisor.js 不符，拒绝停止'
+        }
+      }
+      Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
+    }
     $prepareTargets = @(
       @{ ProfileId = 'workbuddy-cn'; DataDir = $dataRoot; Port = 47832 },
       @{ ProfileId = 'workbuddy-ai'; DataDir = (Join-Path $dataRoot 'profiles\workbuddy-ai'); Port = 47833 },

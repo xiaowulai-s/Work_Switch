@@ -133,3 +133,12 @@ test('multi-profile lifecycle stop passes the expected profile for --profile= ta
   const uninstall = fs.readFileSync(path.join(scriptsDir, 'uninstall-win.ps1'), 'utf8');
   assert.match(uninstall, /-ExpectedProfile \$p\.ProfileId/);
 });
+
+test('prepare all-branch stops the running supervisor before lifecycle stop to avoid a restore race', () => {
+  const prepare = fs.readFileSync(path.join(scriptsDir, 'prepare-win-install.ps1'), 'utf8');
+  const supStop = prepare.indexOf('supervisor.pid');
+  const lifecycleStop = prepare.indexOf('Stop-VerifiedWorkDaddyLifecycle');
+  assert.ok(supStop >= 0, 'prepare must reference supervisor.pid');
+  assert.ok(supStop < lifecycleStop, 'prepare must stop the supervisor BEFORE stopping per-profile lifecycles');
+  assert.match(prepare, /supervisor\.js.*不符，拒绝停止/);
+});
