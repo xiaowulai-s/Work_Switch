@@ -58,6 +58,15 @@ test('supervisor 必须独立探测 CDP 端口，不得因 daemon 存活而短�
   assert.match(supervisorSource, /if \(alive && cdp\)\s*\{/);
 });
 
+test('supervisor daemonAlive 必须遍历候选端口，不只查主端口', () => {
+  // 回归护栏：daemon 启动时主端口被占会落到回退段并持久化（ui-port.json），
+  // 只查 candidates[0] 会让管理器永久判「daemon=不在」→ 每轮拉起 / launcher 已就绪 →
+  // 超时退避 → 高频重启抖动。线上实机（daemon 落 17832）即因此反复重启。
+  assert.doesNotMatch(supervisorSource, /candidates\[0\]/);
+  assert.match(supervisorSource, /for \(const port of ports\)/);
+  assert.match(supervisorSource, /return true;[\s\S]*return false;/);
+});
+
 test('supervisor 只补齐不杀伤：拉起走 win-launcher 且带 profile 环境变量', () => {
   assert.match(supervisorSource, /LAUNCHER_FILE/);
   assert.match(supervisorSource, /WBSWITCH_PROFILE: profileId/);

@@ -96,10 +96,17 @@ function getJson(port, apiPath, timeoutMs) {
 }
 
 async function daemonAlive(profileId) {
+  // daemon 启动时若主端口被占用会落到同 profile 回退段并持久化（ui-port.json），
+  // 因此探测不能只看主端口——须遍历全部候选，任一端口返回本 profile 状态即视为存活。
+  // 只查主端口曾导致：daemon 落在 178xx 时管理器永久判「daemon=不在」→ 每轮拉起、
+  // launcher 却按持久化端口发现已就绪 → 超时退避 → 高频重启抖动。
   const candidates = profileUiPortCandidates(profileId);
-  const port = Array.isArray(candidates) ? candidates[0] : candidates;
-  const status = await getJson(port, '/api/status', HTTP_TIMEOUT_MS);
-  return !!(status && status.ok && status.profile && status.profile.id === profileId);
+  const ports = Array.isArray(candidates) ? candidates : [candidates];
+  for (const port of ports) {
+    const status = await getJson(port, '/api/status', HTTP_TIMEOUT_MS);
+    if (status && status.ok && status.profile && status.profile.id === profileId) return true;
+  }
+  return false;
 }
 
 async function cdpAlive(profileId) {

@@ -220,8 +220,8 @@ const DATA_DIR = defaultDataDir();
 //        映射为会话行；注入脚本新增 __WBS_PROFILE_KIND__ 维度。
 // 0.0.1：WorkSwitch 首发：面板/安装/更新全链路品牌切换为 WorkSwitch（WorkSwitch / WorkSwitch AI /
 //        WorkSwitch Trae），更新仓库指向 xiaowulai-s/Work_Switch；包含 Trae Work CN 会话支持。
-const DAEMON_VERSION = '0.3.4';
-const DAEMON_BUILD_ID = 'release-0.3.4-20260831-workswitch';
+const DAEMON_VERSION = '0.3.5';
+const DAEMON_BUILD_ID = 'release-0.3.5-20260831-workswitch';
 const HOST = '127.0.0.1';
 const IS_WIN = process.platform === 'win32'; // Windows 移植：平台分支开关（macOS 行为保持不变）
 // Windows 安装目录（install.ps1 铺、launcher 用、更新替换目标），对应 macOS 的 /Applications/WorkDaddy.app
