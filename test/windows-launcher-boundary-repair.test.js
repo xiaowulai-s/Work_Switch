@@ -380,3 +380,19 @@ test('Windows daemon repairs only missing cwd directories with stored session pa
   assert.match(daemonSource, /sessionCwdRepairTimer = setInterval/);
   assert.match(daemonSource, /消息文件未改动/);
 });
+
+test('launcher forced-kill rounds tolerate individual taskkill failures instead of crashing', () => {
+  // 单实例宿主/辅助进程树在强杀期间可能因进程被优先轮次结束、临时权限中断而 taskkill 失败。
+  // 曾强杀轮次调用未传 tolerate，异常直接抛到 quitWorkBuddy 顶层，令整个 launcher 崩退，
+  // 自动补调试端口重启的路径随之失效。此处断言强杀轮次已授予 true 容忍，交由下一轮复验后继续。
+  const roundLoop = launcherSource.slice(launcherSource.indexOf('for (let round = 1; round <= 2; round++)'));
+  const forced = roundLoop.match(/await killVerifiedWorkBuddyProcess\(binary, process, true, `强制结束第\$\{round\}轮`\)/);
+  assert.ok(!forced, '强杀轮次不得再用不带 tolerate 的致命调用');
+  assert.ok(
+    roundLoop.includes("await killVerifiedWorkBuddyProcess(binary, process, true, `\u5f3a\u5236\u7ed3\u675f\u7b2c${round}\u8f6e`, true);"),
+    '强杀轮次的 killVerifiedWorkBuddyProcess 必须传入 tolerate=true 以容忍单次 taskkill 失败'
+  );
+  // 身份复验仍在 try 之外保持 fail-closed：容忍只作用于 taskkill 失败，绝不绕过身份校验。
+  assert.match(launcherSource, /if \(!current\) return false;[^}]*assertSameProcessIdentity\(process, current\);/);
+  assert.match(launcherSource, /if \(!tolerate\) throw error;/);
+});

@@ -25,6 +25,9 @@ test('Windows release script interactively builds all profiles for one version',
   assert.match(source, /-IsccPath \$Compiler \| Out-Host/);
   assert.match(source, /WORKDADDY_BUILD_PROFILE/);
   assert.match(source, /-Version \$ReleaseVersion/);
+  // all 是全端包名即 WorkSwitch-All；若映射里漏掉 all 分支会落成 WorkSwitch，
+  // 导致校验查找 WorkSwitch-Setup-<ver>.exe 而产物实为 WorkSwitch-All-Setup-<ver>.exe。
+  assert.match(source, /\$Profile -eq 'all'\) \{ 'WorkSwitch-All' \}/);
   assert.match(launcher, /build-win-release\.ps1/);
   assert.match(launcher, /ExecutionPolicy Bypass/);
 });
@@ -35,6 +38,14 @@ test('Windows hidden launcher stays parseable under WSH code pages', () => {
 
 test('Windows standard relaunch script is UTF-8 with BOM for Windows PowerShell 5.1', () => {
   assert.deepEqual([...standardRelaunchBytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+});
+
+test('supervisor tray host is UTF-8 with BOM for Windows PowerShell 5.1', () => {
+  // 含中文菜单文案的 ps1 若无 BOM，会在 Windows PowerShell 5.1 下按系统代码页(GBK)
+  // 解析导致 ParserError，托盘启动即崩、PID 文件不写、图标不显示。
+  const trayBytes = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'supervisor-tray.ps1'));
+  assert.deepEqual([...trayBytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+  assert.match(trayBytes.toString('utf8'), /supervisor status/);
 });
 
 test('Windows standard relaunch falls back to the Explorer Shell object by executable path', () => {
@@ -90,4 +101,8 @@ test('All-in-one package mode: staging skips branding and ships the supervisor',
   assert.match(prepare, /\$Profile -eq 'all'/);
   // 自检清单包含管理器文件
   assert.match(verify, /supervisor\.js supervisor-hidden\.vbs/);
+  // 托盘脚本随 scripts 整体打入安装暂存包（cp -R scripts），且不被排除
+  assert.match(zipBuild, /cp -R scripts "\$STAGE\/scripts"/);
+  assert.doesNotMatch(zipBuild, /supervisor-tray\.ps1/);
+  assert.ok(fs.existsSync(path.join(__dirname, '..', 'scripts', 'supervisor-tray.ps1')), 'supervisor-tray.ps1 必须随 scripts 一起打包');
 });

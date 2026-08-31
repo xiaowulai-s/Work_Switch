@@ -95,11 +95,13 @@ const INJECT_RETRY_DELAY_MS = 1000;
 const PROFILE_PROCESS_NAMES = new Set(
   PROFILE.id === 'workbuddy-ai' ? ['workbuddyai.exe'] :
     PROFILE.id === 'workbuddy-cn' ? ['workbuddy.exe'] :
+    PROFILE.id === 'codebuddy-cn' ? ['codebuddy cn.exe'] :
     PROFILE.id === 'trae-work-cn' ? ['trae solo cn.exe'] : ['codebuddy.exe']
 );
 const PROFILE_BINARY_NAMES = new Set(
   PROFILE.id === 'workbuddy-ai' ? ['workbuddyai.exe'] :
     PROFILE.id === 'workbuddy-cn' ? ['workbuddy.exe'] :
+    PROFILE.id === 'codebuddy-cn' ? ['codebuddy cn.exe'] :
     PROFILE.id === 'trae-work-cn' ? ['trae solo cn.exe'] : ['codebuddy.exe']
 );
 
@@ -1130,7 +1132,9 @@ async function quitWorkBuddy(binary) {
     const current = workBuddyProcesses(binary);
     log(`[exit] 强制结束第 ${round} 轮 snapshot=${JSON.stringify(exitSnapshot(binary))}`);
     for (const process of current) {
-      await killVerifiedWorkBuddyProcess(binary, process, true, `强制结束第${round}轮`);
+      // 强杀轮次中个别 taskkill 失败（如进程已被优先轮次结束、临时权限中断）不容许让整个
+      // 单实例宿主/辅助进程树的结束流程崩退；交由下一轮重新快照并按身份复验后继续。
+      await killVerifiedWorkBuddyProcess(binary, process, true, `强制结束第${round}轮`, true);
     }
     if (await waitForWorkBuddyExit(2500, binary)) {
       log(`[exit] 强制结束后已确认退出 profile=${PROFILE.id} snapshot=${JSON.stringify(exitSnapshot(binary))}`);

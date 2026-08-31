@@ -143,7 +143,7 @@ test('privacy documentation distinguishes local data from required remote servic
   assert.doesNotMatch(readme, /WORKDADDY_DIAGNOSTIC_LOGS/);
   assert.match(readme, /本地脱敏渲染器日志/);
   assert.match(readme, /GitHub Releases/);
-  assert.match(readme, /WorkBuddy 官方 API/);
+  assert.match(readme, /客户端官方 API/); // README 已改为多客户端表述（WorkBuddy/CodeBuddy/Trae）
   assert.doesNotMatch(readme, /内置导入密钥/);
   assert.match(readme, /每次导出随机 salt/);
   assert.match(readme, /模型连通测试/);

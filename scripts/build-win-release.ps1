@@ -94,7 +94,7 @@ function Invoke-WindowsInstallerBuild {
   if ($LASTEXITCODE -ne 0) {
     throw "$Profile Setup.exe 生成失败（退出码 $LASTEXITCODE）。"
   }
-  $packageName = if ($Profile -eq 'workbuddy-ai') { 'WorkSwitch-AI' } elseif ($Profile -eq 'trae-work-cn') { 'WorkSwitch-Trae' } else { 'WorkSwitch' }
+  $packageName = if ($Profile -eq 'workbuddy-ai') { 'WorkSwitch-AI' } elseif ($Profile -eq 'trae-work-cn') { 'WorkSwitch-Trae' } elseif ($Profile -eq 'all') { 'WorkSwitch-All' } else { 'WorkSwitch' }
   $setup = Join-Path $OutputDirectory "$packageName-Setup-$ReleaseVersion.exe"
   if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
     throw "未找到生成的安装包: $setup"

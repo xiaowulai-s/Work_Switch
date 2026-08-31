@@ -8,6 +8,7 @@ const ALLOWED_WORKBUDDY_PROCESS_NAMES = new Set([
   'workbuddy.exe',
   'workbuddyai.exe',
   'codebuddy.exe',
+  'codebuddy cn.exe',
   'trae solo cn.exe',
 ]);
 

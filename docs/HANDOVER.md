@@ -1,6 +1,7 @@
 # WorkSwitch 交接文档
 
-> 更新时间：2026-08-30 · 当前版本：**v0.3.1**（已发布：全端单包 `WorkSwitch-All-Setup-0.3.1.exe`；trae 纳入自动更新渠道；apply-update 感知管理器）· README.md 已同步全端形态
+> 更新时间：2026-08-30 · 当前版本：**v0.3.2**（Setup.exe 已生成 `WorkSwitch-All-Setup-0.3.2.exe`，待正式发布/交接；本机安装因残留守护进程被后台阻止未完）· README.md 已同步全端形态
+> 本次（0.3.2）三处新增/修复：① 多客户端**系统托盘宿主**（`supervisor-tray.ps1`）+ supervisor `open`/`status` 子命令 + 跨进程「打开意图」队列 + supervisor 守护托盘；② **CodeBuddy CN 实机修复**：`codebuddy cn.exe` 镜像名白名单/命名曾在进程边界层漏配，已统一并实机验证插件注入成功；③ 打包链 `build-win-release.ps1` all 包名映射漏 `all` 分支已修复。详见下。
 > 本文档面向接手开发者：先读「项目概览」与「开发环境」，再按模块索引查细节。
 > 工作区规范（不可违背的原则、打包 Runbook、验证命令）以根目录 `AGENTS.md` 为准，本文不重复。
 
@@ -30,6 +31,7 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
 | v0.1.0 | 2026-08-30 | Trae 在线模型列表/切换 + 会话重命名/删除（`__wbsTraeModels`/`__wbsTraeSessionOps`，走官方 UI 入口，不触云 API）；daemon 增 4 条 `/api/trae/*` 路由。 |
 | v0.2.0 | 2026-08-30 | **方案 C 落地**：supervisor 多客户端管理器 + 多 profile 进程身份修复（`--profile` 命令行身份）+ 打包链 all 模式；真机安装冒烟通过。曾发布 4 个安装包（三分身 + All）。 |
 | v0.3.0 | 2026-08-30 | **发布物收敛**：只发 `WorkSwitch-All-Setup-*`，分身安装包下架（CI/打包循环只跑 all）；更新渠道收敛（CN/AI → All 资产）；launcher 优雅关闭失败不再中断（交给强杀轮）。 |
+| v0.3.2 | 2026-08-30 | **多客户端托盘宿主 + CodeBuddy CN 实机修复 + 打包命名修复**：新增常驻系统托盘入口（`supervisor-tray.ps1`，随 supervisor 守护拉起），托盘列出各客户端实时三态状态并可将「打开」意图交给 supervisor；supervisor 增 `open <profile>`/`status` 子命令与跨进程意图队列（命令文件并入单例拉起去重）；`codebuddy cn.exe` 补入进程边界层白名单（此前漏配导致 launcher 找到 exe 却在重启前验证失败）；`build-win-release.ps1` 修复 all 包名映射（漏 `all` 分支会误找 `WorkSwitch-Setup-*`）。Setup.exe 已生成、未发布。 |
 
 **升级路径说明（写发版说明时必须带上）**：
 - 旧 CN 分身（0.1.0/0.2.0）：自身旧代码的兜底正则可匹配 `WorkSwitch-All-Setup-*` → **自动升级**到全端版（安装器精确停旧生命周期）。
@@ -37,7 +39,7 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
 - 旧 Trae 分身 / 手动安装：无渠道，手动安装。
 - 静默安装（`/SILENT`+）会跳过 iss 的 postinstall（`skipifsilent`），装完需手动执行一次 `install-win.ps1 -Profile all` 完成自启注册。
 
-**本机生产状态（2026-08-30）**：安装版 WorkSwitch All（`%LOCALAPPDATA%\Programs\WorkSwitch All`）托管 Trae 与 WorkBuddy，登录自启已注册；`E:\Demo\WorkSwitch` 仅作开发，其守护已清场。
+**本机生产状态（2026-08-30）**：安装版 WorkSwitch All（`%LOCALAPPDATA%\Programs\WorkSwitch All`）托管 Trae 与 WorkBuddy，登录自启已注册。`E:\Demo\WorkSwitch` 仅作开发。**此处重要**：v0.3.2 的 Setup.exe 已在本机用本地 Git Bash + Inno Setup 6 编译生成，但**本机安装（覆盖升级到 0.3.2）被后台进程阻止未完**——原因是安装器预检 `prepare-win-install.ps1` 在标准权限下遇到「Node 入口脚本不匹配/DataDir 为空」及疑似 elevated 的旧版守护进程即 fail-closed 中止（符合 AGENTS 的提权 fail-closed 原则），且安装版 watchdog 存在**自愈循环**（逐个 stop 后约 6s 自动复活，Run/计划任务/启动文件夹均无自启项，来源是其自保逻辑）。**接手者如需完成本机升级，按安装包提示操作：先完全退出 WorkSwitch All 的 daemon/watchdog/tray 全部生命周期，仍不行则右键以管理员身份运行 `WorkSwitch-All-Setup-0.3.2.exe` 一次完成迁移**。代码侧修复（托盘/白名单/包名）已全量落地并有测试护栏，与是否完成本机安装无关。
 
 ## 3. 模块实现细节（含关键设计决策与坑）
 
@@ -73,7 +75,7 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
 ### 3.5 安装与打包链（Windows）
 
 - 链路：`build-win-release.ps1`（只跑 all）→ `build-win-zip.sh`（暂存 ZIP + 打包期替换）→ `build-win-installer.ps1`（Inno Setup 编 `WorkSwitch-All-Setup-*.exe`，`scripts/win/workdaddy.iss` 全参数驱动）。
-- **all 模式**：不做 win-launcher 默认 profile 替换（保留 `|| 'workbuddy-cn'` 字面量——supervisor 以环境变量显式指定，手动运行 launcher 回落 CN 是文档化行为）；不做 ps1 占位符替换（iss 显式传 `-Profile all`，ps1 内部自带 all 分支）；快捷方式指向 `supervisor-hidden.vbs`（无桌面图标）。
+- **all 模式**：不做 win-launcher 默认 profile 替换（保留 `|| 'workbuddy-cn'` 字面量——supervisor 以环境变量显式指定，手动运行 launcher 回落 CN 是文档化行为）；不做 ps1 占位符替换（iss 显式传 `-Profile all`，ps1 内部自带 all 分支）；快捷方式指向 `supervisor-hidden.vbs`（无桌面图标）。**v0.3.2 修复打包脚本 `build-win-release.ps1` 的安装包名映射**：`$packageName` 映射曾漏 `all` 分支——leaks 到 else `'WorkSwitch'`，导致编译出的实际物 `WorkSwitch-All-Setup-<ver>.exe` 与脚本校验查找的 `WorkSwitch-Setup-<ver>.exe` 不符、误报「未找到生成的安装包」（`test/windows-release-script.test.js` 有 `$Profile -eq 'all' → 'WorkSwitch-All'` 回归护栏）。
 - **分身模式遗留**（代码保留，发布不再产出）：AI/Trae 品牌化块按「基准串 → 变体串」替换——改基准文案必须同步 zip 脚本的新旧串对；ps1 只替换 param 默认值占位符，**绝不能全局替换**。
 - daemon 版本一致性：zip 打包期强制重写 staged daemon.js 的 `DAEMON_VERSION`/`DAEMON_BUILD_ID`——**tag 发布时 CI 用的是源码里的版本号，改版本要改源码**。
 - CI 历史坑（两处环境差异，修复有回归测试）：① Git Bash 的 GNU grep 读文本剥 CR → CRLF 校验必须用 `tr` 字节统计；② Windows CI 的 Python 3.12 管道 stdout 默认 cp1252 → zip 脚本 `export PYTHONUTF8=1` + 品牌化块内 `sys.stdout.reconfigure`。教训：写 CI 逻辑前先确认 runner 环境默认值。
@@ -101,10 +103,15 @@ WorkSwitch（fork 自 WorkDaddy）是 AI 桌面客户端的本地增强层：通
 ### 3.9 supervisor 多客户端管理器（方案 C 核心，`scripts/supervisor.js`）
 
 - **职责（只做三件事）**：轮询（10s）检测各 profile 客户端运行（精确镜像名）→ daemon/CDP 主端口不可用时调用 win-launcher 补齐（launcher 幂等）→ 客户端未运行不做任何事（daemon 拉起即常驻，与分身版语义一致）。客户端退出后不停 daemon。
-- **CodeBuddy 双版共用 `codebuddy.exe` 镜像名**：仅当其 CDP 主端口（9224/9225）可响应（可判别版本）时才管理；普通方式启动时保持沉默（宁缺勿错）。
+- **CodeBuddy 双版共用 `codebuddy.exe` 镜像名**：仅当其 CDP 主端口（9224/9225）可响应（可判别版本）时才管理；普通方式启动时保持沉默（宁缺勿错）。**v0.3.2：CodeBuddy CN 1.106+ 镜像名实为 `codebuddy cn.exe`，supervisor/daemon/win-launcher 的 `PROFILE_PROCESS_NAMES`/`PROFILE_BINARY_NAMES`/`CLIENT_IMAGE_NAMES` 已统一改为此名**（intl 保留 `codebuddy.exe`），并且**进程边界层白名单 `windows-process-boundary.js` 的 `ALLOWED_WORKBUDDY_PROCESS_NAMES` 必须加入 `'codebuddy cn.exe'`**——漏加会在 launcher 找到 exe 后、重启前验证抛 "Expected executable is not a WorkBuddy-family binary"（v0.3.2 实机踩过并修复）。
 - 单实例锁 `%APPDATA%\WorkDaddy\supervisor.pid`；`node supervisor.js stop` 停自身（不动 daemon）。在途锁（240s）+ 失败指数退避（30s→10min）。
 - **多 profile 进程身份（关键约定）**：watchdog/daemon 命令行携带 `--profile=<id>`；`windows-process-boundary.js` 的 `filterVerifiedNodeProcesses`/`assertVerifiedNodeProcess` 新增 `expectedProfileId` 参数——命令行必须以 `--profile=<期望值>` 收尾（不带该参数调用 = 旧版严格行为，脚本后不得有任何参数）。**背景**：同目录多 profile 的 (node, 脚本) 身份完全相同，修复前 watchdog 互相「恢复 pid 文件」导致 daemon 起不来（实机复现）。新增按 profile 的进程判定时必须穿这个参数。
-- 真机验证：杀全部 Trae 生命周期 → supervisor 一个轮询周期重建（客户端零扰动）；WorkBuddy 普通启动 → 自动 CDP 重启 + 注入；安装版（bundled node）与 dev 目录并行验证过。
+- **v0.3.2 新增常驻入口与意图队列（托盘宿主）**：
+  - **`node supervisor.js open <profileId>`**（托盘/CLI 调）：把「打开某客户端」意图写入 `%APPDATA%\WorkDaddy\commands\open.<id>.<ts>.json` 命令文件后即返回 `{ok,accepted}`。常驻 supervisor 在每次轮询前 `drainOpenIntents()` 消费，置入对应 profile 单例状态的 `forceOpen`，真正拉起仍走其幂等 launcher——**尊重 LAUNCH_INFLIGHT(240s) 去重与退避，避免托盘与 supervisor 双路 launcher 抢占同一进程树**。已运行客户端点 open 只走补齐、不重复拉起；未运行则冷启动一次（带调试端口）。
+  - **`node supervisor.js status`**：输出三态快照 JSON `{ok, profiles:{<id>:{name,running,status,daemon,cdp,inflight}}}`，`status ∈ normal|pending|unknown|not_running`。CodeBuddy 双版共用镜像名且无 CDP 时标 `unknown`（宁缺勿错，不冒充确定状态）。
+  - **`supervisor-tray.ps1`（系统中鼠标常驻托盘宿主）**：只做「打开入口 + 状态展示」——每个受监管 profile 一个菜单项（点击即 `open` 交给 supervisor），打开菜单时用 `status` 刷新实时状态；提供「退出托盘（不影响已打开客户端）」，不做杀死/提权/跨 profile 操作（与 supervisor「只补齐不杀伤」一致）。托盘写入自己的 PID（`supervisor-tray.pid`），**supervisor 主循环 `ensureTrayRunning()` 守护它**：托盘崩溃/被误关后按 `TRAY_RESPAWN_COOLDOWN_MS`(60s) 自动补拉起，liveness 以托盘自报 PID 精确判定（不做宽名匹配）。
+  - **坑（Windows PowerShell 5.1 编码）**：`supervisor-tray.ps1` 含中文菜单文案，**必须保存为 UTF-8 with BOM**；无 BOM 时 PS5.1 按系统代码页（GBK）解析导致 ParserError，托盘启动即崩、PID 文件不写、图标不显示（v0.3.2 实测修复，`test/windows-release-script.test.js` 有 BOM 回归护栏）。
+- 真机验证：杀全部 Trae 生命周期 → supervisor 一个轮询周期重建（客户端零扰动）；WorkBuddy 普通启动 → 自动 CDP 重启 + 注入；安装版（bundled node）与 dev 目录并行验证过。v0.3.2 另真机验证：托盘点击 `open codebuddy-cn` → 冷启动 CodeBuddy CN 带 9224 调试端口 → CDP 注入成功，supervisor 状态转 normal。（注：托盘图标为 GUI 元素，需人工在系统托盘确认；菜单数据源即 `status` 命令。）
 
 ### 3.8 安装后脚本 all 分支（`install-win.ps1` / `uninstall-win.ps1` / `prepare-win-install.ps1`）
 
@@ -127,6 +134,9 @@ WBSWITCH_PROFILE=trae-work-cn scripts/launcher.cmd        # Git Bash 下也可
 # supervisor（方案 C：按客户端运行状态自动管理各 profile）
 node scripts/supervisor.js            # 前台/后台常驻（单实例锁）
 node scripts/supervisor.js stop       # 停管理器（不影响已拉起的 daemon）
+node scripts/supervisor.js status     # 各客户端三态快照 JSON（托盘菜单数据源）
+node scripts/supervisor.js open workbuddy-ai   # 托盘/CLI：把「打开某端」意图交给 supervisor（去重拉起）
+node scripts/supervisor-tray.ps1 -NodePath <node.exe> -SupervisorPath scripts\supervisor.js  # 手动/守护拉起系统托盘宿主
 
 # 验证
 node --check scripts/daemon.js && node --check scripts/inject.js
@@ -148,7 +158,7 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 
 **开发机现状（2026-08-30）**：生产由安装版 WorkSwitch All 托管（`%LOCALAPPDATA%\Programs\WorkSwitch All`，登录自启，supervisor 常驻）；Trae 与 WorkBuddy 均以其 daemon 0.2.0 运行中（更新渠道会在 6h 检查中自动升级；trae 自 0.3.1 起纳入渠道，本机 trae 需手动重启一次 daemon 进入渠道）。`E:\Demo\WorkSwitch` 为开发目录（当前 main = v0.3.0），其守护已清场，开发时用上面的命令按 profile 手动拉起（注意：dev 与安装版并存时会竞争同一客户端的管理权，开发某端前先 `node scripts/supervisor.js stop`）。
 
-**发版提醒**：① v0.3.0 的 Release notes 需人工补一段「旧 AI 分身用户需手动安装全端版」（generate_release_notes 不会写）；② 本机无 Inno Setup，Setup.exe 编译只由 CI 验证；③ 带中文载荷的接口测试用 python 发送（curl -d 在 Windows 会搞坏 UTF-8）。
+**发版提醒（0.3.2）**：① Release notes 需人工补「旧 AI 分身用户需手动安装全端版」；② 0.3.2 新增系统托盘宿主 + supervisor `open`/`status`——发行说明建议一句话告知用户「托盘右下角可查看/启动各客户端」；③ 带中文载荷的接口测试用 python 发送（curl -d 在 Windows 会搞坏 UTF-8）。**本机已在 0.3.2 构建时安装 Git for Windows（`C:\Program Files\Git`）与 Inno Setup 6（`%LOCALAPPDATA%\Programs\Inno Setup 6`），Setup.exe 可本地编译**（原"本机无 Inno Setup、仅 CI 验证"的说法已过时）。
 
 ## 5. 下一步开发计划（建议优先级）
 
@@ -156,19 +166,20 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 2. ~~P1 — Trae 模型能力~~ ✅（v0.1.0，§3.7；后续可选「会话级模型记忆」需再摸 composer 的 currentMode/modeList）
 3. ~~P1 — Trae 会话增强~~ ✅（v0.1.0，§3.7；剩余收尾：真实删除的一次性会话验证）
 4. ~~方案 C — All-in-One~~ ✅（v0.2.0/v0.3.0，§3.9/§3.8）
-5. **P2 — Trae 账号能力**：登录态为加密存储 + Cloud-IDE-JWT（失效与刷新问题），切换账号需逆向 trae.cn 账号接口，工作量大、单独排期。
-6. **P2 — Trae 主题能力**：Trae 是 VSCode fork，形态应为「workbench 主题 + CSS 注入」，需新设计而非复用现有 theme 引擎。
-7. ~~**P3 — trae 更新渠道开启评估**~~ **已完成并随 v0.3.1 发布（2026-08-30）**：trae-work-cn 纳入 `WorkSwitch-All-` 渠道；前提是 apply-update.ps1 已感知管理器（更新前精确停 supervisor，成功/回滚后重启，由它按需重建生命周期——消除 daemon 自更新与管理器的竞态）。同版还升级 actions/checkout v5（消 Node 20 警告）、补写了 v0.3.0 Release notes（含旧 AI 分身手动迁移说明）。
+5. ~~方案 C — 常驻托盘宿主 + supervisor 命令~~ ✅（v0.3.2，§3.9）：`supervisor-tray.ps1` 系统托盘入口（随 supervisor 守护拉起、崩溃自补）、supervisor `open`/`status` 子命令与跨进程意图队列、托盘脚本 UTF-8 BOM 修复。
+6. **P2 — Trae 账号能力**：登录态为加密存储 + Cloud-IDE-JWT（失效与刷新问题），切换账号需逆向 trae.cn 账号接口，工作量大、单独排期。
+7. **P2 — Trae 主题能力**：Trae 是 VSCode fork，形态应为「workbench 主题 + CSS 注入」，需新设计而非复用现有 theme 引擎。
+8. ~~**P3 — trae 更新渠道开启评估**~~ **已完成并随 v0.3.1 发布（2026-08-30）**：trae-work-cn 纳入 `WorkSwitch-All-` 渠道；前提是 apply-update.ps1 已感知管理器（更新前精确停 supervisor，成功/回滚后重启，由它按需重建生命周期——消除 daemon 自更新与管理器的竞态）。同版还升级 actions/checkout v5（消 Node 20 警告）、补写了 v0.3.0 Release notes（含旧 AI 分身手动迁移说明）。
    - **内置资产结论**：官方壁纸资产本机与 CI 均不存在（仅上游作者机器有），入库不可行、构建期下载会耦合上游——维持缺失时优雅降级；如未来需要，向上游 babygoton/WorkDaddy 拉取或自制后入库。
-8. **P3 — macOS**：实机确认 Trae mac 包名；mac 打包脚本 WorkSwitch 化；评估 mac 侧 supervisor 等价物（launchd）；CI 增加 mac job。
-9. **P3 — 内置资产**：`WorkDaddy.app`（builtin 壁纸来源）被 gitignore，CI 出的包无官方壁纸；把 `scripts/builtin` 入库或改构建期下载。
-10. **P3 — CodeBuddy 回归**：CORS 白名单、更新渠道、supervisor 的 codebuddy 保守策略都需实机过一遍（本机未装 CodeBuddy，静态+测试覆盖）。
-11. ~~**P3 — 杂项**~~ **已完成（2026-08-30）**：actions/checkout 已升 v5；v0.3.0/v0.3.1 Release notes 已人工补写（含旧 AI 分身手动迁移说明）；README.md 已全面重写为全端单包形态（能力矩阵/管理器架构/安装迁移说明）。
-12. **剩余项推进所需条件（接手者对照）**：
+9. **P3 — macOS**：实机确认 Trae mac 包名；mac 打包脚本 WorkSwitch 化；评估 mac 侧 supervisor 等价物（launchd）；CI 增加 mac job。
+10. **P3 — 内置资产**：`WorkDaddy.app`（builtin 壁纸来源）被 gitignore，CI 出的包无官方壁纸；把 `scripts/builtin` 入库或改构建期下载。
+11. **P3 — CodeBuddy 回归**：v0.3.2 已在装有 **CodeBuddy CN 1.106**（`C:\Software\CodeBuddy CN\CodeBuddy CN.exe`）的实机验证**插件启动主链路**：托盘点击 `open codebuddy-cn` → supervisor 冷启动 → launcher 找到 exe → 带 9224 调试端口重启 → CDP 注入成功、supervisor 状态转 normal（期间修复了 `codebuddy cn.exe` 白名单漏配）。**仍未覆盖**：CodeBuddy 国际版（intl）实机、会话/签到、CORS 白名单与更新渠道在 codebuddy 上的实机行为。
+12. ~~**P3 — 杂项**~~ **已完成（2026-08-30）**：actions/checkout 已升 v5；v0.3.0/v0.3.1 Release notes 已人工补写（含旧 AI 分身手动迁移说明）；README.md 已全面重写为全端单包形态（能力矩阵/管理器架构/安装迁移说明）。
+13. **剩余项推进所需条件（接手者对照）**：
     - **P2 Trae 账号能力**：需逆向 trae.cn 账号接口（登录态加密 + Cloud-IDE-JWT 刷新）——建议先抓包分析 `trae-api-cn.mchost.guru` 的账号族接口，排期单独做；隐私红线不变（token 只内存态）。
     - **P2 Trae 主题能力**：先做产品决策——Trae 是 VSCode fork、用户已有原生主题体系，注入 CSS 强改会与原生设置打架；若做，建议最小化形态为「面板与注入元素跟随 Trae 当前主题色」而非整套主题引擎。
     - **P3 macOS**：需要一台 mac 实机（确认 Trae mac 包名 + 跑通 install.sh/relaunch 链路 + 出 dmg）。
-    - **P3 CodeBuddy 回归**：需要安装 CodeBuddy（国内/国际任一）的实机授权；安装后按「注入/会话/签到 + supervisor 的 codebuddy 保守策略」过一遍即可，静态与测试覆盖已就绪。
+    - **P3 CodeBuddy 回归**：本机已装 CodeBuddy CN 1.106，**插件启动主链路已在 v0.3.2 实机验证**（含 `codebuddy cn.exe` 白名单修复）；剩余需 cover：intl 版、会话/签到、CORS 白名单与更新渠道的 codebuddy 实机行为。
     - **P3 内置壁纸**：资产只在上游作者机器上，本机/CI 均无——维持缺失降级；需要时向上游 babygoton/WorkDaddy 拉取或自制后入库（`scripts/builtin`）。
 
 ## 6. 关键风险与约定（接手必读）
@@ -177,4 +188,6 @@ git -c http.proxy=http://127.0.0.1:7897 push origin main
 - **进程安全**：只精确匹配本 profile 的镜像名 + 校验路径/属主/命令行；提权进程 fail-closed 给人工指引，绝不做宽名杀伤。**多 profile 进程判定必须带 `--profile=` 收尾匹配（§3.9）**。
 - **数据安全**：`%APPDATA%\WorkDaddy` 数据目录与账号备份格式不变更；profile 数据隔离靠 `profileDataDir`。
 - **测试是护栏**：改端口表、CDP 判定、更新渠道、身份判定、品牌串前先跑 `node --test test/*.test.js`，失败断言大多直接告诉你漏改了哪处联动。
+- **CodeBuddy CN 镜像名 `codebuddy cn.exe`（v0.3.2 起）是多处同步点**：`supervisor.js` `CLIENT_IMAGE_NAMES`、`win-launcher.js` `PROFILE_PROCESS_NAMES`/`PROFILE_BINARY_NAMES`、`daemon.js` `PROFILE_BINARY_NAMES`、`windows-process-boundary.js` `ALLOWED_WORKBUDDY_PROCESS_NAMES` **四处必须都有**（后者是安全白名单，漏了会在重启前验证失败；本仓库有静态护栏测试）。intl 仍用 `codebuddy.exe`。
+- **托盘脚本编码**：`supervisor-tray.ps1` / `build-win-release.ps1` 等含中文的 PowerShell 必须 UTF-8 with BOM（PS5.1 无 BOM 按 GBK 解析致 ParserError）。用 Edit 改这些文件后要检查 BOM 是否保留。
 - 本仓库不是 WorkDaddy 上游的 git fork（历史从零开始），与上游 `babygoton/WorkDaddy` 的关系只在 README 致谢层面；同步上游改动请手动 cherry-pick。

@@ -52,6 +52,22 @@ test('CIM parsing rejects command failures and incomplete process identities', (
   );
 });
 
+test('CodeBuddy CN exe is validated as a WorkBuddy-family binary', () => {
+  // CodeBuddy CN 1.106+ 镜像名为 codebuddy cn.exe；launcher 找到该 exe 后必须在
+  // filterVerifiedWindowsProcesses 白名单内通过验证，否则会在重启前抛
+  // "Expected executable is not a WorkBuddy-family binary"，导致插件无法注入。
+  const expected = 'C:\\Software\\CodeBuddy CN\\CodeBuddy CN.exe';
+  assert.ok(boundary.ALLOWED_WORKBUDDY_PROCESS_NAMES.has('codebuddy cn.exe'));
+  assert.deepEqual(
+    boundary.filterVerifiedWindowsProcesses(
+      expected,
+      [{ ProcessId: 301, Name: 'CodeBuddy CN.exe', ExecutablePath: 'C:\\Software\\CodeBuddy CN\\CodeBuddy CN.exe' }],
+      resolveWindows
+    ).map((row) => row.ProcessId),
+    [301]
+  );
+});
+
 test('profile process selection rejects multiple roots and ignores other CodeBuddy installs', () => {
   const expected = 'C:\\Program Files\\WorkBuddyAI\\WorkBuddyAI.exe';
   const rows = [

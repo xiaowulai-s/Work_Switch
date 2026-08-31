@@ -1752,6 +1752,7 @@ let wbBinaryCache = null;
 const PROFILE_BINARY_NAMES = new Set(
   PROFILE.id === 'workbuddy-ai' ? ['workbuddyai.exe'] :
     PROFILE.id === 'workbuddy-cn' ? ['workbuddy.exe'] :
+    PROFILE.id === 'codebuddy-cn' ? ['codebuddy cn.exe'] :
     PROFILE.id === 'trae-work-cn' ? ['trae solo cn.exe'] : ['codebuddy.exe']
 );
 function queryWindowsWorkBuddyProcesses() {
