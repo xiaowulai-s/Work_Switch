@@ -57,7 +57,12 @@ test('PowerShell boundary rejects a script appearing only in later argv', { skip
     `try { [void](Assert-DaemonStatusIdentity -Status ([pscustomobject]@{ pid = '777'; version = '1.0.14'; privilege = 'standard'; profile = [pscustomobject]@{ id = 'workbuddy-cn' } }) -Port 47832 -ExpectedProfile 'workbuddy-cn' -ExpectedVersion '1.0.14' -ExpectedDaemonScript '${path.join(scriptsDir, 'daemon.js').replace(/'/g, "''")}') } catch { $statusRejected = $true }`,
     '$versionRejected = $false',
     `try { [void](Assert-DaemonStatusIdentity -Status ([pscustomobject]@{ pid = 777; version = '1.0.13'; privilege = 'standard'; profile = [pscustomobject]@{ id = 'workbuddy-cn' } }) -Port 47832 -ExpectedProfile 'workbuddy-cn' -ExpectedVersion '1.0.14' -ExpectedDaemonScript '${path.join(scriptsDir, 'daemon.js').replace(/'/g, "''")}') } catch { $versionRejected = $_.Exception.Message -match 'version' }`,
-    'if ($good -and $future -and -not $trailing -and -not $bad -and -not $nodeSpace -and -not $scriptSpace -and -not $scriptCrlf -and -not $emptyQuoted -and -not $unclosedQuoted -and -not $joinedQuoted -and -not $embeddedQuoted -and $chromiumArgs.Count -eq 3 -and $chromiumArgs[1] -ceq "--user-data-dir=C:\\WorkBuddy Data\\app" -and $cmdGood -and -not $cmdBad -and $listeners.Count -eq 1 -and $listeners[0] -eq 777 -and $listenersWithBlanks.Count -eq 1 -and $listenersWithBlanks[0] -eq 777 -and $ambiguous.Count -eq 2 -and $foreignRejected -and $statusRejected -and $versionRejected) { exit 0 } else { exit 7 }',
+    "$profGood = Test-ExactNodeEntryCommandLine -CommandLine '\"C:\\Node\\node.exe\" \"C:\\WorkDaddy\\scripts\\daemon.js\" --profile=workbuddy-cn' -ExpectedScript $expected -ExpectedProfile 'workbuddy-cn' -PathResolver $resolver",
+    "$profBad = Test-ExactNodeEntryCommandLine -CommandLine '\"C:\\Node\\node.exe\" \"C:\\WorkDaddy\\scripts\\daemon.js\" --profile=workbuddy-ai' -ExpectedScript $expected -ExpectedProfile 'workbuddy-cn' -PathResolver $resolver",
+    "$profNoProfile = Test-ExactNodeEntryCommandLine -CommandLine '\"C:\\Node\\node.exe\" \"C:\\WorkDaddy\\scripts\\daemon.js\" --profile=workbuddy-cn' -ExpectedScript $expected -PathResolver $resolver",
+    "$sqliteProf = Test-ExactNodeEntryCommandLine -CommandLine '\"C:\\Node\\node.exe\" --experimental-sqlite \"C:\\WorkDaddy\\scripts\\daemon.js\" --profile=workbuddy-cn' -ExpectedScript $expected -ExpectedProfile 'workbuddy-cn' -PathResolver $resolver",
+    "$profExtraTail = Test-ExactNodeEntryCommandLine -CommandLine '\"C:\\Node\\node.exe\" \"C:\\WorkDaddy\\scripts\\daemon.js\" --profile=workbuddy-cn x' -ExpectedScript $expected -ExpectedProfile 'workbuddy-cn' -PathResolver $resolver",
+    'if ($good -and $future -and -not $trailing -and -not $bad -and -not $nodeSpace -and -not $scriptSpace -and -not $scriptCrlf -and -not $emptyQuoted -and -not $unclosedQuoted -and -not $joinedQuoted -and -not $embeddedQuoted -and $chromiumArgs.Count -eq 3 -and $chromiumArgs[1] -ceq "--user-data-dir=C:\\WorkBuddy Data\\app" -and $cmdGood -and -not $cmdBad -and $listeners.Count -eq 1 -and $listeners[0] -eq 777 -and $listenersWithBlanks.Count -eq 1 -and $listenersWithBlanks[0] -eq 777 -and $ambiguous.Count -eq 2 -and $foreignRejected -and $statusRejected -and $versionRejected -and $profGood -and -not $profBad -and -not $profNoProfile -and $sqliteProf -and -not $profExtraTail) { exit 0 } else { exit 7 }',
   ].join('; ');
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -106,4 +111,25 @@ test('only the shared verified PowerShell boundary may invoke taskkill', () => {
     const source = fs.readFileSync(path.join(scriptsDir, name), 'utf8');
     assert.doesNotMatch(source, /taskkill(?:\.exe)?\s/i, name);
   }
+});
+
+test('multi-profile lifecycle stop passes the expected profile for --profile= tail identity', () => {
+  const helper = fs.readFileSync(helperPath, 'utf8');
+  // 边界核心：每当提供 ExpectedProfile，就必须要求命令行以 --profile=<期望值> 收尾。
+  assert.match(helper, /\[string\]\$ExpectedProfile = ''/);
+  assert.match(helper, /if \(\[string\]::IsNullOrWhiteSpace\(\$ExpectedProfile\)\)/);
+  assert.match(helper, /\$arguments\[\$entryIndex \+ 1\] -cne \("--profile=" \+ \$ExpectedProfile\)/);
+  assert.match(helper, /Assert-NodeProcessIdentity[\s\S]* -ExpectedProfile \$ExpectedProfile/);
+  // prepare（安装前）：all 分支按 target 传 profile，且 catch 兜底引用正确 dataDir/uiPort/profile
+  const prepare = fs.readFileSync(path.join(scriptsDir, 'prepare-win-install.ps1'), 'utf8');
+  assert.match(prepare, /@{ ProfileId = 'workbuddy-cn'; DataDir = \$dataRoot; Port = 47832 }/);
+  assert.match(prepare, /-ExpectedProfile \$t\.ProfileId/);
+  assert.match(prepare, /\$profileForAuth = if \(\$Profile -eq 'all'\) \{ \$currentProfile \} else \{ \$Profile \}/);
+  // 单 profile 路径（install/uninstall/apply-update）传 $Profile；all 卸载循环按 target 传 profile
+  for (const name of ['install-win.ps1', 'uninstall-win.ps1', 'apply-update.ps1']) {
+    const source = fs.readFileSync(path.join(scriptsDir, name), 'utf8');
+    assert.match(source, /-ExpectedProfile \$Profile/, name);
+  }
+  const uninstall = fs.readFileSync(path.join(scriptsDir, 'uninstall-win.ps1'), 'utf8');
+  assert.match(uninstall, /-ExpectedProfile \$p\.ProfileId/);
 });

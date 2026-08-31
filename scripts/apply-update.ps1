@@ -95,6 +95,7 @@ function Stop-WatchdogAndPort {
   Stop-VerifiedWorkDaddyLifecycle `
     -DataDir $DataDir `
     -Port ([int]$Port) `
+    -ExpectedProfile $Profile `
     -ExpectedWatchdogScript (Join-Path $AppDir 'scripts\watchdog.js') `
     -ExpectedDaemonScript (Join-Path $AppDir 'scripts\daemon.js')
 }

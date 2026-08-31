@@ -52,16 +52,17 @@ if ($Profile -eq 'all') {
     }
   } catch {}
   foreach ($p in @(
-    @{ DataDir = $dataRoot; Port = 47832 },
-    @{ DataDir = (Join-Path $dataRoot 'profiles\workbuddy-ai'); Port = 47833 },
-    @{ DataDir = (Join-Path $dataRoot 'profiles\codebuddy-cn'); Port = 47834 },
-    @{ DataDir = (Join-Path $dataRoot 'profiles\codebuddy-intl'); Port = 47835 },
-    @{ DataDir = (Join-Path $dataRoot 'profiles\trae-work-cn'); Port = 47836 }
+    @{ ProfileId = 'workbuddy-cn'; DataDir = $dataRoot; Port = 47832 },
+    @{ ProfileId = 'workbuddy-ai'; DataDir = (Join-Path $dataRoot 'profiles\workbuddy-ai'); Port = 47833 },
+    @{ ProfileId = 'codebuddy-cn'; DataDir = (Join-Path $dataRoot 'profiles\codebuddy-cn'); Port = 47834 },
+    @{ ProfileId = 'codebuddy-intl'; DataDir = (Join-Path $dataRoot 'profiles\codebuddy-intl'); Port = 47835 },
+    @{ ProfileId = 'trae-work-cn'; DataDir = (Join-Path $dataRoot 'profiles\trae-work-cn'); Port = 47836 }
   )) {
     try {
       Stop-VerifiedWorkDaddyLifecycle `
         -DataDir $p.DataDir `
         -Port $p.Port `
+        -ExpectedProfile $p.ProfileId `
         -ExpectedWatchdogScript (Join-Path $AppDir 'scripts\watchdog.js') `
         -ExpectedDaemonScript (Join-Path $AppDir 'scripts\daemon.js')
       Write-Host ('  已停止 profile 生命周期: ' + $p.Port)
@@ -76,6 +77,7 @@ if ($Profile -ne 'all') {
   Stop-VerifiedWorkDaddyLifecycle `
     -DataDir $dataDir `
     -Port $port `
+    -ExpectedProfile $Profile `
     -ExpectedWatchdogScript (Join-Path $AppDir 'scripts\watchdog.js') `
     -ExpectedDaemonScript (Join-Path $AppDir 'scripts\daemon.js')
 }

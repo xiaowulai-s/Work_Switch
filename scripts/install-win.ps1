@@ -164,6 +164,7 @@ try {
   Stop-VerifiedWorkDaddyLifecycle `
     -DataDir $dataDir `
     -Port $uiPort `
+    -ExpectedProfile $Profile `
     -ExpectedWatchdogScript (Join-Path $AppDir 'scripts\watchdog.js') `
     -ExpectedDaemonScript (Join-Path $AppDir 'scripts\daemon.js')
   Write-InstallLine '  已停止并清理当前 profile 的旧守护进程。'

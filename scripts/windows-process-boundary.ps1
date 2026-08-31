@@ -156,6 +156,7 @@ function Test-ExactNodeEntryCommandLine {
     [Parameter(Mandatory = $true)][string]$CommandLine,
     [Parameter(Mandatory = $true)][string]$ExpectedScript,
     [string]$ExpectedNode = '',
+    [string]$ExpectedProfile = '',
     [scriptblock]$PathResolver
   )
   try {
@@ -168,7 +169,14 @@ function Test-ExactNodeEntryCommandLine {
     $entryIndex = 1
     if ($arguments[$entryIndex] -ceq '--experimental-sqlite') { $entryIndex++ }
     if ($entryIndex -ge $arguments.Count) { return $false }
-    if ($arguments.Count -ne ($entryIndex + 1)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($ExpectedProfile)) {
+      # 旧版严格行为：命令行必须恰好是 node + 脚本（可带 --experimental-sqlite），后不得有尾参。
+      if ($arguments.Count -ne ($entryIndex + 1)) { return $false }
+    } else {
+      # 多 profile 判定：要求命令行以 --profile=<期望值> 收尾（§3.9），与 JS 边界一致。
+      if ($arguments.Count -ne ($entryIndex + 2)) { return $false }
+      if ($arguments[$entryIndex + 1] -cne ("--profile=" + $ExpectedProfile)) { return $false }
+    }
     return Test-StrictCommandTokenPath -Token $arguments[$entryIndex] -ExpectedPath $ExpectedScript -PathResolver $PathResolver
   } catch {
     return $false
@@ -227,7 +235,8 @@ function Assert-NodeProcessIdentity {
   param(
     [Parameter(Mandatory = $true)]$Process,
     [Parameter(Mandatory = $true)][int]$ExpectedPid,
-    [Parameter(Mandatory = $true)][string]$ExpectedScript
+    [Parameter(Mandatory = $true)][string]$ExpectedScript,
+    [string]$ExpectedProfile = ''
   )
   if ([int]$Process.ProcessId -ne $ExpectedPid -or [string]$Process.Name -ine 'node.exe') {
     throw "PID $ExpectedPid 不是目标 Node 进程"
@@ -237,7 +246,7 @@ function Assert-NodeProcessIdentity {
   if ([IO.Path]::GetFileName($executable) -ine 'node.exe') {
     throw "PID $ExpectedPid 的可执行文件不是 node.exe"
   }
-  if (-not (Test-ExactNodeEntryCommandLine -CommandLine ([string]$Process.CommandLine) -ExpectedScript $ExpectedScript -ExpectedNode $executable)) {
+  if (-not (Test-ExactNodeEntryCommandLine -CommandLine ([string]$Process.CommandLine) -ExpectedScript $ExpectedScript -ExpectedNode $executable -ExpectedProfile $ExpectedProfile)) {
     throw "PID $ExpectedPid 的 Node 入口脚本不匹配"
   }
   return $Process
@@ -263,9 +272,10 @@ function Assert-CmdLauncherIdentity {
 function Get-UniqueNodeProcessForScript {
   param(
     [Parameter(Mandatory = $true)][string]$ExpectedScript,
-    [int]$ExpectedParentProcessId = 0
+    [int]$ExpectedParentProcessId = 0,
+    [string]$ExpectedProfile = ''
   )
-  $matches = @(Get-VerifiedNodeProcessesForScript -ExpectedScript $ExpectedScript -ExpectedParentProcessId $ExpectedParentProcessId)
+  $matches = @(Get-VerifiedNodeProcessesForScript -ExpectedScript $ExpectedScript -ExpectedParentProcessId $ExpectedParentProcessId -ExpectedProfile $ExpectedProfile)
   if ($matches.Count -gt 1) { throw "目标 Node 入口存在多个进程: $ExpectedScript" }
   if ($matches.Count -eq 0) { return $null }
   return $matches[0]
@@ -274,7 +284,8 @@ function Get-UniqueNodeProcessForScript {
 function Get-VerifiedNodeProcessesForScript {
   param(
     [Parameter(Mandatory = $true)][string]$ExpectedScript,
-    [int]$ExpectedParentProcessId = 0
+    [int]$ExpectedParentProcessId = 0,
+    [string]$ExpectedProfile = ''
   )
   $matches = @()
   $scriptName = [IO.Path]::GetFileName($ExpectedScript)
@@ -296,7 +307,7 @@ function Get-VerifiedNodeProcessesForScript {
         [string]::IsNullOrWhiteSpace([string]$row.CommandLine)) {
       throw 'Node 进程身份字段不完整，无法证明目标进程不存在'
     }
-    if (-not (Test-ExactNodeEntryCommandLine -CommandLine ([string]$row.CommandLine) -ExpectedScript $ExpectedScript)) {
+    if (-not (Test-ExactNodeEntryCommandLine -CommandLine ([string]$row.CommandLine) -ExpectedScript $ExpectedScript -ExpectedProfile $ExpectedProfile)) {
       continue
     }
     $processId = 0
@@ -305,7 +316,7 @@ function Get-VerifiedNodeProcessesForScript {
     }
     $record = Get-StrictProcessRecord -ProcessId $processId
     if ($null -eq $record) { throw "目标 Node 进程 PID=$processId 在身份验证期间消失" }
-    $matches += ,(Assert-NodeProcessIdentity -Process $record -ExpectedPid $processId -ExpectedScript $ExpectedScript)
+    $matches += ,(Assert-NodeProcessIdentity -Process $record -ExpectedPid $processId -ExpectedScript $ExpectedScript -ExpectedProfile $ExpectedProfile)
   }
   return $matches
 }
@@ -429,7 +440,8 @@ function Stop-VerifiedWorkDaddyLifecycle {
     [Parameter(Mandatory = $true)][string]$DataDir,
     [Parameter(Mandatory = $true)][int]$Port,
     [Parameter(Mandatory = $true)][string]$ExpectedWatchdogScript,
-    [Parameter(Mandatory = $true)][string]$ExpectedDaemonScript
+    [Parameter(Mandatory = $true)][string]$ExpectedDaemonScript,
+    [string]$ExpectedProfile = ''
   )
   $scriptsDir = Split-Path -Parent $ExpectedDaemonScript
   $expectedLauncherScript = Join-Path $scriptsDir 'win-launcher.js'
@@ -470,9 +482,9 @@ function Stop-VerifiedWorkDaddyLifecycle {
       $pidProbeError = $_
     }
     if ($null -ne $pidCandidate) {
-      $watchdog = Assert-NodeProcessIdentity -Process $pidCandidate -ExpectedPid $watchdogPid -ExpectedScript $ExpectedWatchdogScript
+      $watchdog = Assert-NodeProcessIdentity -Process $pidCandidate -ExpectedPid $watchdogPid -ExpectedScript $ExpectedWatchdogScript -ExpectedProfile $ExpectedProfile
     } else {
-      $replacementWatchdog = Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedWatchdogScript
+      $replacementWatchdog = Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedWatchdogScript -ExpectedProfile $ExpectedProfile
       if ($null -ne $replacementWatchdog) {
         $currentPidText = (Get-Content -LiteralPath $pidFile -Raw -ErrorAction Stop).Trim()
         if ($currentPidText -cne [string]$pidFilePid) {
@@ -496,7 +508,7 @@ function Stop-VerifiedWorkDaddyLifecycle {
       }
     }
   } else {
-    $watchdog = Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedWatchdogScript
+    $watchdog = Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedWatchdogScript -ExpectedProfile $ExpectedProfile
   }
 
   # Stop the verified watchdog before taking the daemon/listener snapshot. This
@@ -505,14 +517,14 @@ function Stop-VerifiedWorkDaddyLifecycle {
 
   $listenerPid = Get-UniqueListeningProcessId -Port $Port
   $daemon = if ($null -ne $watchdog) {
-    Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedDaemonScript -ExpectedParentProcessId ([int]$watchdog.ProcessId)
+    Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedDaemonScript -ExpectedParentProcessId ([int]$watchdog.ProcessId) -ExpectedProfile $ExpectedProfile
   } else {
-    Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedDaemonScript
+    Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedDaemonScript -ExpectedProfile $ExpectedProfile
   }
   if ($null -ne $listenerPid) {
     $listener = Get-StrictProcessRecord -ProcessId $listenerPid
     if ($null -eq $listener) { throw "端口 $Port 的监听 PID 在验证期间消失" }
-    [void](Assert-NodeProcessIdentity -Process $listener -ExpectedPid $listenerPid -ExpectedScript $ExpectedDaemonScript)
+    [void](Assert-NodeProcessIdentity -Process $listener -ExpectedPid $listenerPid -ExpectedScript $ExpectedDaemonScript -ExpectedProfile $ExpectedProfile)
     if ($null -eq $daemon -or [int]$daemon.ProcessId -ne $listenerPid) {
       throw "端口 $Port 的监听 PID 与枚举到的精确 daemon 进程不一致"
     }
@@ -538,7 +550,7 @@ function Stop-VerifiedWorkDaddyLifecycle {
       throw 'watchdog.pid 在清理前发生变化'
     }
     if ($null -ne (Get-StrictProcessRecord -ProcessId $watchdogPid) -or
-        $null -ne (Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedWatchdogScript)) {
+        $null -ne (Get-UniqueNodeProcessForScript -ExpectedScript $ExpectedWatchdogScript -ExpectedProfile $ExpectedProfile)) {
       throw 'watchdog.pid 在清理前不再能证明为 stale 状态'
     }
     Remove-Item -LiteralPath $pidFile -Force -ErrorAction Stop
@@ -576,7 +588,7 @@ function Assert-DaemonStatusIdentity {
   }
   $daemon = Get-StrictProcessRecord -ProcessId $listenerPid
   if ($null -eq $daemon) { throw 'daemon 监听进程在身份验证期间消失' }
-  return Assert-NodeProcessIdentity -Process $daemon -ExpectedPid $listenerPid -ExpectedScript $ExpectedDaemonScript
+  return Assert-NodeProcessIdentity -Process $daemon -ExpectedPid $listenerPid -ExpectedScript $ExpectedDaemonScript -ExpectedProfile $ExpectedProfile
 }
 
 function Test-ExclusiveFile {
